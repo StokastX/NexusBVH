@@ -5,15 +5,17 @@ set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 file(GLOB src
     src/BVHBuilder.h
-    src/bvhbuilder.cpp
+    src/BVHBuilder.cpp
     src/BVH/BVH.h
-    src/Cuda/BuildState.h
+
     src/Cuda/BinaryBuilder.h
     src/Cuda/BinaryBuilder.cu
     src/Cuda/WideConverter.h
     src/Cuda/WideConverter.cu
     src/Cuda/Setup.h
     src/Cuda/Setup.cu
+    src/Cuda/BuilderUtils.h
+
     src/Math/CudaMath.h
     src/Math/AABB.h
 )

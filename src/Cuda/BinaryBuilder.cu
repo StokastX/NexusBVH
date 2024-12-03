@@ -1,4 +1,4 @@
-#include "BinaryBuilder.cuh"
+#include "BinaryBuilder.h"
 #include <iostream>
 #include <cub/device/device_radix_sort.cuh>
 #include "Math/AABB.h"
