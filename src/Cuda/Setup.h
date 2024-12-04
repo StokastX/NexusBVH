@@ -2,18 +2,28 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include "Math/AABB.h"
+#include "BuilderUtils.h"
 
 namespace NXB
 {
-	/* \brief Compute a list of 64-bit Morton codes
-	 *
-	 * \param bounds The list of AABBs whose centroid will be used to generate the keys
-	 * \param mortonCodes the list of mortonCodes to be filled
-	 * \param size The number of centroids
+	/* \brief Computes the AABBs of the triangles
+	 * 
+	 * \param primitives The list of triangles the AABBs will be computed from
 	 */
-	__global__ void ComputeMortonCodes(AABB* bounds, uint64_t* mortonCodes, uint32_t size);
+	__global__ void ComputePrimBounds(BuildState buildState, float3* primitives);
 
-	/* \brief One sweep radix sort for 64-bit Morton codes
+	/* \brief Computes the bounds of the scene
+	 * 
+	 * \param primitives The list scene primitives
+	 */
+	__global__ void ComputeSceneBounds(BuildState buildState, float3* primitives);
+
+	/*
+	 * \brief Compute a list of 64-bit Morton codes from the centroid of the AABBs contained in buildState
+	 */
+	__global__ void ComputeMortonCodes(BuildState buildState);
+
+	/* \brief Performs one sweep radix sort for 64-bit Morton codes
 	 *
 	 * \param mortonCodes The list of Morton codes to be sorted
 	 * \param primIds The list of primitive indices

@@ -6,6 +6,12 @@
 
 namespace NXB
 {
+	enum struct PrimType: unsigned char
+	{
+		AABB,
+		TRIANGLE
+	};
+
 	struct BVH2
 	{
 		struct Node

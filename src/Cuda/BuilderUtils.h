@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 #include "Math/CudaMath.h"
 #include "Math/AABB.h"
 
@@ -12,15 +13,48 @@ namespace NXB
 		// List of Morton codes
 		uint64_t* mortonCodes;
 
-		// Bounds of the primitives
+		// Bounds of the primitives (or primitives if primType == AABB)
 		AABB* primBounds;
+
+		// Scene bounds
+		AABB* sceneBounds;
+
+		// Indices of the primitives
+		uint32_t* primIdx;
 
 		// Number of primitives
 		uint32_t primCount;
+		
+		// Type of primitives (triangle or AABB)
+		PrimType primType;
 	};
 
+	// Float version of atomicMin
+	__device__ __forceinline__ void atomicMin(float* ptr, float value)
+	{
+		unsigned int curr = atomicAdd((unsigned int*)ptr, 0);
+		while (value < __int_as_float(curr)) {
+			unsigned int prev = curr;
+			curr = atomicCAS((unsigned int*)ptr, curr, __float_as_int(value));
+			if (curr == prev)
+				break;
+		}
+	}
+
+	// Float version of atomicMax
+	__device__ __forceinline__ void atomicMax(float* ptr, float value)
+	{
+		unsigned int curr = atomicAdd((unsigned int*)ptr, 0);
+		while (value > __int_as_float(curr)) {
+			unsigned int prev = curr;
+			curr = atomicCAS((unsigned int*)ptr, curr, __float_as_int(value));
+			if (curr == prev)
+				break;
+		}
+	}
+
 	/* \brief Interleave the first 21 bits of x every three bits,
-	 * ie insert two zeroes between every of the 21 first bits of x
+	 * ie insert two zeroes between every of the first 21 bits of x
 	 * \param x Quantitized position, must be between 0 and 2^21 - 1 = 2,097,152
 	 */
 	__device__ uint64_t InterleaveBits(uint64_t x)
@@ -73,7 +107,7 @@ namespace NXB
 		x = (x | (x << 2)) & 0x1249249249249249;
 	}
 
-	/* \brief Compute a 63-bit Morton code for the given quantitized 3D point
+	/* \brief Compute a 64-bit Morton code for the given quantitized 3D point
 	 * \param x The quantitized x coordinate
 	 * \param y The quantitized y coordinate
 	 * \param z The quantitized z coordinate
@@ -83,7 +117,7 @@ namespace NXB
 		return InterleaveBits(x) | InterleaveBits(y) << 1 | InterleaveBits(z) << 2;
 	}
 
-	/* \brief Compute a 63-bit Morton code for the given (not normalized) 3D point
+	/* \brief Compute a 64-bit Morton code for the given (not normalized) 3D point
 	 * \param centroid The centroid position, normalized in [0, 1]
 	 */
 	__device__ uint64_t MortonCode(const float3& centroid)
@@ -93,5 +127,4 @@ namespace NXB
 		uint32_t z = centroid.z * 0x1fffff;
 		return MortonCode(x, y, z);
 	}
-
 }
