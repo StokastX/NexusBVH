@@ -47,5 +47,4 @@ namespace NXB
 
 	private:
 	};
-	void Test();
 }

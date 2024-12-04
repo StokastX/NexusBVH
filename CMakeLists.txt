@@ -1,48 +1,18 @@
-project(NexusBVH)
+cmake_minimum_required(VERSION 3.22)
 
-enable_language(CUDA)
-set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
+	message(FATAL_ERROR "In-source builds are not allowed. Please make a new build directory and run cmake from there. You may want to remove CMakeCache.txt")
+endif()
 
-file(GLOB src
-    src/BVHBuilder.h
-    src/BVHBuilder.cpp
-    src/BVH/BVH.h
+project("NexusBVH")
 
-    src/Cuda/BinaryBuilder.h
-    src/Cuda/BinaryBuilder.cu
-    src/Cuda/WideConverter.h
-    src/Cuda/WideConverter.cu
-    src/Cuda/Setup.h
-    src/Cuda/Setup.cu
-    src/Cuda/BuildState.h
-    src/Cuda/BuilderUtils.h
-    src/Cuda/CudaUtils.h
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-    src/Math/CudaMath.h
-    src/Math/Triangle.h
-    src/Math/AABB.h
-)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-add_library(NexusBVH STATIC ${src})
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
 
-target_include_directories(NexusBVH
-    PUBLIC
-    src
-)
-
-# CUDA optimizations
-target_compile_options(NexusBVH PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-	--use_fast_math
-	-rdc=true
->)
-
-# CUDA device link-time optimization (DLTO)
-target_link_options(NexusBVH PRIVATE $<DEVICE_LINK:
-	--dlink-time-opt
->)
-
-# Display tree files in Visual Studio
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
-	FILES ${src}
-)
-
+add_subdirectory(NexusBVH)
+add_subdirectory(Test)

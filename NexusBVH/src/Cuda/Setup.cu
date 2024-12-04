@@ -94,6 +94,14 @@ void NXB::RadixSort(BuildState buildState)
 
 	tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
 
+	uint64_t hostMC[4];
+	CudaMemory::Copy<uint64_t>(hostMC, buildState.mortonCodes, 4, cudaMemcpyDeviceToHost);
+	std::cout << "Before: " << std::endl;
+	std::cout << hostMC[0] << std::endl;
+	std::cout << hostMC[1] << std::endl;
+	std::cout << hostMC[2] << std::endl;
+	std::cout << hostMC[3] << std::endl;
+
 	// Perform radix sorting
 	cub::DeviceRadixSort::SortPairs(
 		tempStorage,
@@ -113,8 +121,8 @@ void NXB::RadixSort(BuildState buildState)
 	buildState.mortonCodes = mortonCodesSorted;
 	buildState.primIdx = primIdxSorted;
 
-	uint64_t hostMC[4];
 	CudaMemory::Copy<uint64_t>(hostMC, mortonCodesSorted, 4, cudaMemcpyDeviceToHost);
+	std::cout << "After: " << std::endl;
 	std::cout << hostMC[0] << std::endl;
 	std::cout << hostMC[1] << std::endl;
 	std::cout << hostMC[2] << std::endl;
