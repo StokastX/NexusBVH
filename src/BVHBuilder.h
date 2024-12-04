@@ -1,5 +1,7 @@
 #pragma once
 #include "BVH/BVH.h"
+#include "Math/AABB.h"
+#include "Math/Triangle.h"
 
 namespace NXB
 {
@@ -10,13 +12,19 @@ namespace NXB
 		 *
 		 * \param primitives The primitives the BVH will be built from
 		 * \param primCount The number of primitives
-		 * \param primType The type of primitives. 
-		 * One of NXB::PrimType::AABB or NXB::PrimType::Triangle.
-		 * Each AABB should be composed of two float3 and each triangle of three float3
 		 * 
 		 * \returns A pointer to the device instance of the newly created binary BVH
 		 */
-		BVH2* BuildBinary(float3* primitives, uint32_t primCount, PrimType primType);
+		BVH2* BuildBinary(AABB* primitives, uint32_t primCount);
+
+		/* \brief Builds a BVH from a list of primitives
+		 *
+		 * \param primitives The primitives the BVH will be built from
+		 * \param primCount The number of primitives
+		 * 
+		 * \returns A pointer to the device instance of the newly created binary BVH
+		 */
+		BVH2* BuildBinary(Triangle* primitives, uint32_t primCount);
 
 		/* \brief Converts a binary BVH into a compressed wide BVH
 		 *
@@ -36,6 +44,8 @@ namespace NXB
 		 */
 		void FreeBVH(BVH8* wideBVH);
 
+
 	private:
 	};
+	void Test();
 }

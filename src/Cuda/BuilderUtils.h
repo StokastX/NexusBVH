@@ -8,27 +8,6 @@
 
 namespace NXB
 {
-	struct BuildState
-	{
-		// List of Morton codes
-		uint64_t* mortonCodes;
-
-		// Bounds of the primitives (or primitives if primType == AABB)
-		AABB* primBounds;
-
-		// Scene bounds
-		AABB* sceneBounds;
-
-		// Indices of the primitives
-		uint32_t* primIdx;
-
-		// Number of primitives
-		uint32_t primCount;
-		
-		// Type of primitives (triangle or AABB)
-		PrimType primType;
-	};
-
 	// Float version of atomicMin
 	__device__ __forceinline__ void atomicMin(float* ptr, float value)
 	{
@@ -51,6 +30,17 @@ namespace NXB
 			if (curr == prev)
 				break;
 		}
+	}
+
+	__device__ void AtomicGrow(AABB* aabb, const AABB& other)
+	{
+		atomicMin(&aabb->bMin.x, other.bMin.x);
+		atomicMin(&aabb->bMin.y, other.bMin.y);
+		atomicMin(&aabb->bMin.z, other.bMin.z);
+
+		atomicMax(&aabb->bMax.x, other.bMax.x);
+		atomicMax(&aabb->bMax.y, other.bMax.y);
+		atomicMax(&aabb->bMax.z, other.bMax.z);
 	}
 
 	/* \brief Interleave the first 21 bits of x every three bits,
@@ -105,6 +95,8 @@ namespace NXB
 		 * Bitmask is now :        0001 0010 0100 1001 0010 0100 1001 0010 0100 1001 0010 0100 1001 0010 0100 1001  hex: 0x1249249249249249
 		*/
 		x = (x | (x << 2)) & 0x1249249249249249;
+
+		return x;
 	}
 
 	/* \brief Compute a 64-bit Morton code for the given quantitized 3D point

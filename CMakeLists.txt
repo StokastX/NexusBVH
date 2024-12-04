@@ -14,9 +14,12 @@ file(GLOB src
     src/Cuda/WideConverter.cu
     src/Cuda/Setup.h
     src/Cuda/Setup.cu
+    src/Cuda/BuildState.h
     src/Cuda/BuilderUtils.h
+    src/Cuda/CudaUtils.h
 
     src/Math/CudaMath.h
+    src/Math/Triangle.h
     src/Math/AABB.h
 )
 
