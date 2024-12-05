@@ -1,8 +1,11 @@
 #pragma once
 #include <cuda_runtime.h>
+#include "Cuda/BuildState.h"
 
 namespace NXB
 {
-
-	__global__ void BuildBinaryKernel();
+	/*
+	 * \brief HPLOC based binary BVH building
+	 */
+	__global__ void BuildBinaryBVH(BuildState buildState);
 }
