@@ -36,10 +36,12 @@ int main(void)
 	NXB::CudaMemory::Copy<NXB::Triangle>(dTriangles, triangles, 4, cudaMemcpyHostToDevice);
 
 	std::cout << "Building BVH" << std::endl;
-	bvhBuilder.BuildBinary(dTriangles, 4);
-
+	NXB::BVH2* bvh = bvhBuilder.BuildBinary(dTriangles, 4);
 	std::cout << "Building done" << std::endl;
 
+	bvhBuilder.FreeBVH(bvh);
+
 	NXB::CudaMemory::Free(dTriangles);
+
 	return EXIT_SUCCESS;
 }

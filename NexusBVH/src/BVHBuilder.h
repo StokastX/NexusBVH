@@ -37,7 +37,7 @@ namespace NXB
 		/*
 		 * \brief Free the device instance of the binary BVH
 		 */
-		void FreeBVH(BVH2* bindaryBVH);
+		void FreeBVH(BVH2* bvh2);
 
 		/*
 		 * \brief Free the device instance of the wide BVH

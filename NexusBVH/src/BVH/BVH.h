@@ -22,7 +22,7 @@ namespace NXB
 			union
 			{
 				uint32_t leftChild;
-				uint32_t firsPrimId;
+				uint32_t firstPrimId;
 			};
 			// Number of triangles in the node (0 if not leaf)
 			uint32_t primCount;
@@ -31,7 +31,7 @@ namespace NXB
 		Node* nodes;
 		uint32_t nodeCount;
 
-		uint32_t* primIds;
+		uint32_t* primIdx;
 		uint32_t primCount;
 	};
 

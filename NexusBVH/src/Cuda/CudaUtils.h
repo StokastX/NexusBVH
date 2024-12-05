@@ -47,6 +47,17 @@ namespace NXB
 			CUDA_CHECK(cudaMemcpyAsync((void*)dst, (void*)src, sizeof(T) * count, kind));
 		}
 
+		static void Memset(void* dst, int32_t value, uint32_t count)
+		{
+			CUDA_CHECK(cudaMemset(dst, value, count));
+		}
+
+		static void MemsetAsync(void* dst, int32_t value, uint32_t count)
+		{
+			CUDA_CHECK(cudaMemsetAsync(dst, value, count));
+		}
+
+
 		static void Free(void* ptr)
 		{
 			CUDA_CHECK(cudaFree(ptr));

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include "Math/AABB.h"
+#include "BVH/BVH.h"
 
 namespace NXB
 {
@@ -16,8 +17,17 @@ namespace NXB
 		// Scene bounds
 		AABB* sceneBounds;
 
-		// Indices of the primitives
+		// BVH2 nodes
+		BVH2::Node* nodes;
+
+		// Primitive indices
 		uint32_t* primIdx;
+
+		// Cluster indices
+		uint32_t* clusterIdx;
+
+		// BVH2 parent indices
+		int32_t* parentIdx;
 
 		// Number of primitives
 		uint32_t primCount;
