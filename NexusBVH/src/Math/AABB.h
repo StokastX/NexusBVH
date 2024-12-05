@@ -26,8 +26,8 @@ namespace NXB
 
 		__host__ __device__ void Clear()
 		{
-			bMin = make_float3(-INFINITY);
-			bMax = make_float3(INFINITY);
+			bMin = make_float3(INFINITY);
+			bMax = make_float3(-INFINITY);
 		}
 
 		__host__ __device__ float3 Centroid()

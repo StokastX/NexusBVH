@@ -69,7 +69,7 @@ __global__ void NXB::ComputeMortonCodes(BuildState buildState)
 	buildState.primIdx[primIdx] = primIdx;
 }
 
-void NXB::RadixSort(BuildState buildState)
+void NXB::RadixSort(BuildState& buildState)
 {
 	using byte = unsigned char;
 
@@ -115,8 +115,9 @@ void NXB::RadixSort(BuildState buildState)
 		64
 	);
 
-	//CudaMemory::FreeAsync(buildState.mortonCodes);
-	//CudaMemory::FreeAsync(buildState.primIdx);
+	CudaMemory::FreeAsync(tempStorage);
+	CudaMemory::FreeAsync(buildState.mortonCodes);
+	CudaMemory::FreeAsync(buildState.primIdx);
 
 	buildState.mortonCodes = mortonCodesSorted;
 	buildState.primIdx = primIdxSorted;

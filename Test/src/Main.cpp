@@ -4,7 +4,7 @@
 
 int main(void)
 {
-	NXB::Triangle t0(
+	NXB::Triangle t3(
 		make_float3(40.0f, -40.0f, 40.0f),
 		make_float3(40.0f, -40.0f, -40.0f),
 		make_float3(-40.0f, -40.0f, -40.0f)
@@ -22,7 +22,7 @@ int main(void)
 		make_float3(-40.0f, 40.0f, -40.0f)
 	);
 
-	NXB::Triangle t3(
+	NXB::Triangle t0(
 		make_float3(-40.0f, 40.0f, 40.0f),
 		make_float3(40.0f, 40.0f, 40.0f),
 		make_float3(-40.0f, 40.0f, -40.0f)

@@ -18,6 +18,7 @@ file(GLOB src
     src/Cuda/BuilderUtils.h
     src/Cuda/CudaUtils.h
 
+    src/Math/Math.h
     src/Math/CudaMath.h
     src/Math/Triangle.h
     src/Math/AABB.h

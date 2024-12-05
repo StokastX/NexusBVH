@@ -1,5 +1,6 @@
 #include "BVHBuilder.h"
 
+#include "Math/Math.h"
 #include "Cuda/CudaUtils.h"
 #include "Cuda/BinaryBuilder.h"
 #include "Cuda/Setup.h"
@@ -13,26 +14,39 @@ namespace NXB
 		buildState.primBounds = primitives;
 
 		buildState.sceneBounds = CudaMemory::AllocAsync<AABB>(1);
-
-		// Launch scene bounds kernel
-		// TODO
-
 		buildState.mortonCodes = CudaMemory::AllocAsync<uint64_t>(primCount);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 
-		// Launch morton codes kernel
-		// TODO
+		const uint32_t blockSize = 1024;
+		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);
 
-		// Launch radix sort kernel
-		// TODO
+		void* args[1] = { &buildState };
+
+		// Step 1: Compute scene bounding box
+		// ===============================================================================
+		CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds, gridSize, blockSize, args, 0, 0));
+		// ===============================================================================
+
+		// Step 2: compute morton codes
+		// ===============================================================================
+		CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+		// ===============================================================================
+
+		// Step 3: one sweep radix sort for morton codes and primitive ids
+		// ===============================================================================
 		RadixSort(buildState);
+		// ===============================================================================
 
-		//cudaLaunchKernel(&BuildBinaryKernel, dim3(1, 1, 1), dim3(1, 1, 1), nullptr, 0, 0);
-		//cudaDeviceSynchronize();
+		// Step 4: HPLOC binary BVH building
+		// ===============================================================================
+		// TODO
+		// ===============================================================================
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);
 		CudaMemory::FreeAsync(buildState.mortonCodes);
 		CudaMemory::FreeAsync(buildState.primIdx);
+
+		CUDA_CHECK(cudaDeviceSynchronize());
 
 		return nullptr;
 	}
@@ -43,8 +57,15 @@ namespace NXB
 		buildState.primCount = primCount;
 		buildState.primBounds = CudaMemory::AllocAsync<AABB>(primCount);
 
-		// Launch primitive bounds computation kernel
-		// TODO
+		const uint32_t blockSize = 1024;
+		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);
+
+		void* args[2] = { &buildState, &primitives };
+
+		// Step 0: compute triangles bounding boxes
+		// ==============================================================================
+		CUDA_CHECK(cudaLaunchKernel(ComputePrimBounds, gridSize, blockSize, args, 0, 0));
+		// ==============================================================================
 
 		BVH2* bvh = BuildBinary(buildState.primBounds, primCount);
 
