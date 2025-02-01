@@ -4,6 +4,8 @@
 #include "Math/CudaMath.h"
 #include "Math/AABB.h"
 
+#define INVALID_IDX (uint32_t)(-1)
+
 namespace NXB
 {
 	enum struct PrimType: unsigned char
@@ -18,14 +20,11 @@ namespace NXB
 		{
 			AABB bounds;
 
-			// Either the index of the left child node, or the first index in the triangles list
-			union
-			{
-				uint32_t leftChild;
-				uint32_t firstPrimId;
-			};
-			// Number of triangles in the node (0 if not leaf)
-			uint32_t primCount;
+			// leftChild = INVALID_IDX if leaf node
+			uint32_t leftChild;
+
+			// rightChild = primIdx if leaf node
+			uint32_t rightChild;
 		};
 
 		Node* nodes;

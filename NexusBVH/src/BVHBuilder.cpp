@@ -18,6 +18,7 @@ namespace NXB
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(primCount);
+		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 
 		// Init parent ids to -1
 		CudaMemory::MemsetAsync(buildState.parentIdx, -1, primCount);

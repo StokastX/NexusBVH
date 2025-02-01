@@ -61,7 +61,7 @@ __global__ void NXB::ComputeMortonCodes(BuildState buildState)
 	AABB *sceneBounds = buildState.sceneBounds;
 	float3 centroid = primBounds.Centroid();
 
-	// TODO: change division into mutliplication? (store the inverse scene bounds)
+	// TODO: change division into mutliplication (store the inverse scene bounds)
 	uint64_t mortonCode = MortonCode((centroid - sceneBounds->bMin) / (sceneBounds->bMax - sceneBounds->bMin));
 	buildState.mortonCodes[primIdx] = mortonCode;
 

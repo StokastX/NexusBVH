@@ -32,7 +32,12 @@ namespace NXB
 		}
 	}
 
-	__device__ void AtomicGrow(AABB* aabb, const AABB& other)
+	/*
+	 * \brief Atomic version of grow
+	 * 
+	 * \param aabb The bounding box stored in shared or global memory
+	 */
+	__device__ __forceinline__ void AtomicGrow(AABB* aabb, const AABB& other)
 	{
 		atomicMin(&aabb->bMin.x, other.bMin.x);
 		atomicMin(&aabb->bMin.y, other.bMin.y);
@@ -47,7 +52,7 @@ namespace NXB
 	 * ie insert two zeroes between every of the first 21 bits of x
 	 * \param x Quantitized position, must be between 0 and 2^21 - 1 = 2,097,152
 	 */
-	__device__ uint64_t InterleaveBits(uint64_t x)
+	__device__ __forceinline__ uint64_t InterleaveBits(uint64_t x)
 	{
 		/* Comments generated with Python from https://stackoverflow.com/questions/18529057/produce-interleaving-bit-patterns-morton-keys-for-32-bit-64-bit-and-128bit */
 
@@ -104,7 +109,7 @@ namespace NXB
 	 * \param y The quantitized y coordinate
 	 * \param z The quantitized z coordinate
 	 */
-	__device__ uint64_t MortonCode(uint32_t x, uint32_t y, uint32_t z)
+	__device__ __forceinline__ uint64_t MortonCode(uint32_t x, uint32_t y, uint32_t z)
 	{
 		return InterleaveBits(x) | InterleaveBits(y) << 1 | InterleaveBits(z) << 2;
 	}
@@ -112,7 +117,7 @@ namespace NXB
 	/* \brief Compute a 64-bit Morton code for the given (not normalized) 3D point
 	 * \param centroid The centroid position, normalized in [0, 1]
 	 */
-	__device__ uint64_t MortonCode(const float3& centroid)
+	__device__ __forceinline__ uint64_t MortonCode(const float3& centroid)
 	{
 		uint32_t x = centroid.x * 0x1fffff;
 		uint32_t y = centroid.y * 0x1fffff;
