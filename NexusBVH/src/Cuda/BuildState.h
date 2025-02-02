@@ -31,5 +31,8 @@ namespace NXB
 
 		// Number of primitives
 		uint32_t primCount;
+
+		// Number of merged clusters
+		uint32_t* clusterCount;
 	};
 }

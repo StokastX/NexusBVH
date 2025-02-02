@@ -19,9 +19,12 @@ namespace NXB
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
+		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
 
 		// Init parent ids to -1
 		CudaMemory::MemsetAsync(buildState.parentIdx, -1, primCount);
+
+		CudaMemory::MemsetAsync(buildState.clusterCount, 0, 1);
 
 		const uint32_t blockSize = 1024;
 		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);

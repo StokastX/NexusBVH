@@ -24,6 +24,12 @@ namespace NXB
 			bMax = fmaxf(bMax, v);
 		}
 
+		__host__ __device__ void Grow(const AABB& other)
+		{
+			bMin = fminf(bMin, other.bMin);
+			bMax = fmaxf(bMax, other.bMax);
+		}
+
 		__host__ __device__ void Clear()
 		{
 			bMin = make_float3(INFINITY);
@@ -33,6 +39,13 @@ namespace NXB
 		__host__ __device__ float3 Centroid()
 		{
 			return (bMin + bMax) * 0.5f;
+		}
+
+		// Returns area / 2
+		__host__ __device__ float Area()
+		{
+			float3 diff = bMax - bMin;
+			return diff.x * diff.y + diff.y * diff.z + diff.z * diff.x;
 		}
 
 		float3 bMin;

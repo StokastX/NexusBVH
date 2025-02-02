@@ -114,7 +114,7 @@ namespace NXB
 		return InterleaveBits(x) | InterleaveBits(y) << 1 | InterleaveBits(z) << 2;
 	}
 
-	/* \brief Compute a 64-bit Morton code for the given (not normalized) 3D point
+	/* \brief Compute a 64-bit Morton code for the given 3D point
 	 * \param centroid The centroid position, normalized in [0, 1]
 	 */
 	__device__ __forceinline__ uint64_t MortonCode(const float3& centroid)
