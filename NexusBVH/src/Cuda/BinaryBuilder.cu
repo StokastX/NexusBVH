@@ -86,7 +86,7 @@ namespace NXB
 			else
 				nodeIdx = leftChildIdx;
 
-			uint32_t mergeMask = __ballot_sync(FULL_MASK, merge);
+			uint32_t mergeMask = __ballot_sync(__activemask(), merge);
 			mergeCount = __popc(mergeMask);
 
 			uint32_t baseIdx;
@@ -95,10 +95,10 @@ namespace NXB
 				baseIdx = atomicAdd(buildState.clusterCount, mergeCount);
 
 			// Share baseIdx with warp
-			baseIdx = __shfl_sync(FULL_MASK, baseIdx, 0);
+			baseIdx = __shfl_sync(__activemask(), baseIdx, 0);
 
 			// Number of merging lanes with indices less than laneWarpId
-			uint32_t relativeIdx = __popc(mergeMask << (WARP_SIZE - laneWarpId));
+			uint32_t relativeIdx = __popc(mergeMask << (FULL_MASK - laneWarpId));
 
 
 			if (merge)
@@ -114,17 +114,17 @@ namespace NXB
 			}
 
 			// Cluster idx compaction
-			validMask = __ballot_sync(FULL_MASK, nodeIdx != INVALID_IDX);
+			validMask = __ballot_sync(__activemask(), nodeIdx != INVALID_IDX);
 
 			// Shift = cluster idx before compaction
 			uint32_t shift = __fns(validMask, 0, laneWarpId + 1);
 
 			// TODO: check that for shift = -1, the value taken by shfl is the value of the last thread in the warp
 			// Should be (based on CUDA C++ guide)
-			clusterIdx[laneWarpId] = __shfl_sync(FULL_MASK, nodeIdx, shift);
-
-			__syncthreads();
+			clusterIdx[laneWarpId] = __shfl_sync(__activemask(), nodeIdx, shift);
 		}
+
+		__syncthreads();
 
 		// Share number of valid clusters with inactive lanes
 		validMask = __shfl_sync(FULL_MASK, validMask, 0);
@@ -153,8 +153,6 @@ namespace NXB
 					AABB neighborBounds = clusterBounds[neighborIdx];
 					neighborBounds.Grow(aabb);
 
-					if (threadIdx.x == 2)
-						int a = 0;
 					// Encode area + neighbor index in a 64-bit variable
 					uint32_t area = __float_as_uint(neighborBounds.Area());
 					uint64_t encode0 = (uint64_t)area << 32 | neighborIdx;
@@ -245,8 +243,6 @@ namespace NXB
 		{
 			if (laneActive)
 			{
-				if (threadIdx.x == 2)
-					int a = 0;
 				int32_t previousId;
 				if (FindParentId(left, right, buildState.primCount, buildState.mortonCodes) == right)
 				{
