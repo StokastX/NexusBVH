@@ -69,12 +69,11 @@ namespace NXB
 			uint32_t nearestNeighbor = nearestNeighbors[laneWarpId] & 0xffffffff;
 			uint32_t leftChildIdx = clusterIdx[laneWarpId];
 			AABB aabb = clusterBounds[laneWarpId];
-			clusterIdx[laneWarpId] = INVALID_IDX;
 
 			bool merge = false;
 			uint32_t nodeIdx;
 
-			if (nearestNeighbor == (nearestNeighbors[nearestNeighbor] & 0xffffffff))
+			if (laneWarpId == (nearestNeighbors[nearestNeighbor] & 0xffffffff))
 			{
 				if (laneWarpId < nearestNeighbor)
 					merge = true;
@@ -114,17 +113,17 @@ namespace NXB
 				buildState.nodes[nodeIdx] = node;
 			}
 
-			// Cluster idx compaction: new index = number of valid clusters at indices less than laneWarpId
+			// Cluster idx compaction
 			validMask = __ballot_sync(FULL_MASK, nodeIdx != INVALID_IDX);
-			uint32_t newClusterIdx = __popc(validMask << (WARP_SIZE - laneWarpId));
+
+			// Shift = cluster idx before compaction
+			uint32_t shift = __fns(validMask, 0, laneWarpId + 1);
+
+			// TODO: check that for shift = -1, the value taken by shfl is the value of the last thread in the warp
+			// Should be (based on CUDA C++ guide)
+			clusterIdx[laneWarpId] = __shfl_sync(FULL_MASK, nodeIdx, shift);
 
 			__syncthreads();
-
-			if (nodeIdx != INVALID_IDX)
-			{
-				clusterIdx[newClusterIdx] = nodeIdx;
-				clusterBounds[newClusterIdx] = aabb;
-			}
 		}
 
 		// Share number of valid clusters with inactive lanes
@@ -145,7 +144,7 @@ namespace NXB
 			AABB aabb = clusterBounds[laneWarpId];
 			uint64_t minAreaIdx = (uint64_t)(-1);
 
-			for (uint32_t r = 1; r < WARP_SIZE / 2; r++)
+			for (uint32_t r = 1; r <= WARP_SIZE / 2; r++)
 			{
 				uint32_t neighborIdx = laneWarpId + r;
 
@@ -154,6 +153,8 @@ namespace NXB
 					AABB neighborBounds = clusterBounds[neighborIdx];
 					neighborBounds.Grow(aabb);
 
+					if (threadIdx.x == 2)
+						int a = 0;
 					// Encode area + neighbor index in a 64-bit variable
 					uint32_t area = __float_as_uint(neighborBounds.Area());
 					uint64_t encode0 = (uint64_t)area << 32 | neighborIdx;
@@ -176,13 +177,19 @@ namespace NXB
 		// Share current lane's LBVH node with other threads in the warp
 		uint32_t lStart = __shfl_sync(FULL_MASK, left, laneId);
 		uint32_t rEnd = __shfl_sync(FULL_MASK, right, laneId);
-		uint32_t lEnd = __shfl_sync(FULL_MASK, split, laneId);
+		uint32_t lEnd = __shfl_sync(FULL_MASK, split, laneId) - 1;
 		uint32_t rStart = __shfl_sync(FULL_MASK, split, laneId);
 
 		// Load left and right child's cluster indices into shared memory
 		uint32_t numLeft = LoadIndices(lStart, lEnd, clusterIdx, buildState, 0);
 		uint32_t numRight = LoadIndices(rStart, rEnd, clusterIdx, buildState, numLeft);
 		uint32_t numPrim = numLeft + numRight;
+
+		// Thread index in the warp
+		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
+		// Load cluster bounds in shared memory
+		if (laneWarpId < numPrim)
+			clusterBounds[laneWarpId] = buildState.nodes[clusterIdx[laneWarpId]].bounds;
 
 		// If we reached the root node, we want to merge all the remaining clusters (ie threshold = 1)
 		uint32_t threshold = __shfl_sync(FULL_MASK, final, laneId) ? 1 : WARP_SIZE / 2;
@@ -195,11 +202,9 @@ namespace NXB
 
 		StoreIndices(numPrim, clusterIdx, buildState, lStart);
 
-		// Thread index in the warp
-		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 	}
 
-	__global__ void BuildBinaryBVH(BuildState buildState)
+	__global__ void NXB::BuildBinaryBVH(BuildState buildState)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -240,6 +245,8 @@ namespace NXB
 		{
 			if (laneActive)
 			{
+				if (threadIdx.x == 2)
+					int a = 0;
 				int32_t previousId;
 				if (FindParentId(left, right, buildState.primCount, buildState.mortonCodes) == right)
 				{
@@ -279,6 +286,9 @@ namespace NXB
 
 			uint32_t size = right - left + 1;
 			bool final = laneActive && size == buildState.primCount;
+			//if (laneActive && (size > WARP_SIZE / 2) || final)
+			//	final = false;
+			//	printf("yes");
 			uint32_t warpMask = __ballot_sync(FULL_MASK, laneActive && (size > WARP_SIZE / 2) || final);
 
 			while (warpMask)
