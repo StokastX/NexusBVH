@@ -28,5 +28,5 @@ namespace NXB
 	/*
 	 * \brief Performs one sweep radix sort for 64-bit Morton codes
 	 */
-	void RadixSort(BuildState& buildState);
+	void RadixSort(BuildState& buildState, uint64_t* mortonCodesSorted, uint32_t* primIdxSorted);
 }
