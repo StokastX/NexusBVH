@@ -11,6 +11,15 @@
 
 namespace NXB
 {
+	// float3 version of __shfl_sync
+	static __forceinline__ __device__ float3 shfl_sync(uint32_t mask, float3 value, uint32_t shift)
+	{
+		float x = __shfl_sync(mask, value.x, shift);
+		float y = __shfl_sync(mask, value.y, shift);
+		float z = __shfl_sync(mask, value.z, shift);
+		return make_float3(x, y, z);
+	}
+
 	// Highest differing bit.
 	// "In practice, logical xor can be used instead of finding the index as we can compare the numbers." (Apetrei)
 	static __forceinline__ __device__ uint32_t Delta(uint32_t a, uint32_t b, uint64_t* mortonCodes)
@@ -61,73 +70,63 @@ namespace NXB
 	static __device__ uint32_t MergeClustersCreateBVH2Node(uint32_t numPrim, uint64_t* nearestNeighbors, uint32_t* clusterIdx, AABB* clusterBounds, BuildState buildState)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
-		uint32_t mergeCount = 0;
-		uint32_t validMask;
+		uint32_t newClusterIdx;
+		AABB newClusterBounds;
+		uint32_t nearestNeighbor;
 
-		if (laneWarpId < numPrim)
+		bool laneActive = laneWarpId < numPrim;
+
+		if (laneActive)
 		{
-			uint32_t nearestNeighbor = nearestNeighbors[laneWarpId] & 0xffffffff;
-			uint32_t leftChildIdx = clusterIdx[laneWarpId];
-			AABB aabb = clusterBounds[laneWarpId];
-
-			bool merge = false;
-			uint32_t nodeIdx;
-
-			if (laneWarpId == (nearestNeighbors[nearestNeighbor] & 0xffffffff))
-			{
-				if (laneWarpId < nearestNeighbor)
-					merge = true;
-				else
-				{
-					nodeIdx = INVALID_IDX;
-					aabb.Clear();
-				}
-			}
-			else
-				nodeIdx = leftChildIdx;
-
-			uint32_t mergeMask = __ballot_sync(__activemask(), merge);
-			mergeCount = __popc(mergeMask);
-
-			uint32_t baseIdx;
-			// Per-warp atomic to reduce global memory access
-			if (laneWarpId == 0)
-				baseIdx = atomicAdd(buildState.clusterCount, mergeCount);
-
-			// Share baseIdx with warp
-			baseIdx = __shfl_sync(__activemask(), baseIdx, 0);
-
-			// Number of merging lanes with indices less than laneWarpId
-			uint32_t relativeIdx = __popc(mergeMask << (FULL_MASK - laneWarpId));
-
-
-			if (merge)
-			{
-				aabb.Grow(clusterBounds[nearestNeighbor]);
-
-				BVH2::Node node;
-				node.bounds = aabb;
-				node.leftChild = leftChildIdx;
-				node.rightChild = clusterIdx[nearestNeighbor];
-				nodeIdx = baseIdx + relativeIdx;
-				buildState.nodes[nodeIdx] = node;
-			}
-
-			// Cluster idx compaction
-			validMask = __ballot_sync(__activemask(), nodeIdx != INVALID_IDX);
-
-			// Shift = cluster idx before compaction
-			uint32_t shift = __fns(validMask, 0, laneWarpId + 1);
-
-			// TODO: check that for shift = -1, the value taken by shfl is the value of the last thread in the warp
-			// Should be (based on CUDA C++ guide)
-			clusterIdx[laneWarpId] = __shfl_sync(__activemask(), nodeIdx, shift);
+			newClusterIdx = clusterIdx[laneWarpId];
+			newClusterBounds = clusterBounds[laneWarpId];
+			nearestNeighbor = nearestNeighbors[laneWarpId] & 0xffffffff;
 		}
 
-		__syncthreads();
+		bool mutualNeighbor = laneActive && laneWarpId == (nearestNeighbors[nearestNeighbor] & 0xffffffff);
+		bool merge = mutualNeighbor && laneWarpId < nearestNeighbor;
 
-		// Share number of valid clusters with inactive lanes
-		validMask = __shfl_sync(FULL_MASK, validMask, 0);
+		uint32_t mergeMask = __ballot_sync(FULL_MASK, merge);
+		uint32_t mergeCount = __popc(mergeMask);
+
+		uint32_t baseIdx;
+		// Per-warp atomic to reduce global memory access
+		if (laneWarpId == 0)
+			baseIdx = atomicAdd(buildState.clusterCount, mergeCount);
+
+		// Share baseIdx with warp
+		baseIdx = __shfl_sync(FULL_MASK, baseIdx, 0);
+
+		// Number of merging lanes with indices less than laneWarpId
+		uint32_t relativeIdx = __popc(mergeMask << (WARP_SIZE - laneWarpId));
+
+		if (merge)
+		{
+			newClusterBounds.Grow(clusterBounds[nearestNeighbor]);
+
+			BVH2::Node node;
+			node.bounds = newClusterBounds;
+			node.leftChild = newClusterIdx;
+			node.rightChild = clusterIdx[nearestNeighbor];
+			newClusterIdx = baseIdx + relativeIdx;
+			buildState.nodes[newClusterIdx] = node;
+		}
+
+		// Cluster idx compaction
+		uint32_t validMask = __ballot_sync(FULL_MASK, laneActive && (merge || !mutualNeighbor));
+
+		// Shift = cluster idx before compaction
+		uint32_t shift = __fns(validMask, 0, laneWarpId + 1);
+
+		// TODO: check that for shift = -1, the value taken by shfl is the value of the last thread in the warp
+		// Should be (based on CUDA C++ guide)
+		clusterIdx[laneWarpId] = __shfl_sync(FULL_MASK, newClusterIdx, shift);
+
+		AABB aabb;
+		aabb.bMin = shfl_sync(FULL_MASK, newClusterBounds.bMin, shift);
+		aabb.bMax = shfl_sync(FULL_MASK, newClusterBounds.bMax, shift);
+		clusterBounds[laneWarpId] = aabb;
+
 		return __popc(validMask);
 	}
 
@@ -282,9 +281,7 @@ namespace NXB
 
 			uint32_t size = right - left + 1;
 			bool final = laneActive && size == buildState.primCount;
-			//if (laneActive && (size > WARP_SIZE / 2) || final)
-			//	final = false;
-			//	printf("yes");
+
 			uint32_t warpMask = __ballot_sync(FULL_MASK, laneActive && (size > WARP_SIZE / 2) || final);
 
 			while (warpMask)
