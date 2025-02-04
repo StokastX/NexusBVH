@@ -54,7 +54,7 @@ __global__ void NXB::ComputeMortonCodes(BuildState buildState)
 {
 	uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 
-	if (primIdx > buildState.primCount)
+	if (primIdx >= buildState.primCount)
 		return;
 
 	AABB primBounds = buildState.primBounds[primIdx];
@@ -111,4 +111,22 @@ void NXB::RadixSort(BuildState& buildState, uint64_t* mortonCodesSorted, uint32_
 
 	buildState.mortonCodes = mortonCodesSorted;
 	buildState.primIdx = primIdxSorted;
+}
+
+__global__ void NXB::InitClusters(BuildState buildState)
+{
+	const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (idx < buildState.primCount)
+	{
+		// Initialize first N leaf nodes
+		BVH2::Node node;
+		node.bounds = buildState.primBounds[buildState.primIdx[idx]];
+		node.leftChild = INVALID_IDX;
+		node.rightChild = buildState.primIdx[idx];
+		buildState.nodes[idx] = node;
+
+		// Initialize cluster indices to leaf node indices
+		buildState.clusterIdx[idx] = idx;
+	}
 }

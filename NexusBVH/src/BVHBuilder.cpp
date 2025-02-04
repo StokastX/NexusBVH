@@ -9,12 +9,13 @@ namespace NXB
 {
 	BVH2* BVHBuilder::BuildBinary(AABB* primitives, uint32_t primCount)
 	{
+		uint32_t nodeCount = primCount == 1 ? 2 : primCount * 2 - 1;
 		BuildState buildState;
 		buildState.primCount = primCount;
 		buildState.primBounds = primitives;
 		buildState.sceneBounds = CudaMemory::AllocAsync<AABB>(1);
 		buildState.mortonCodes = CudaMemory::AllocAsync<uint64_t>(primCount);
-		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(primCount * 2);
+		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(nodeCount);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(primCount);
@@ -36,9 +37,8 @@ namespace NXB
 		void* args[1] = { &buildState };
 
 		std::cout << "========== Building binary BVH ==========" << std::endl << std::endl;
-		//auto start = std::chrono::high_resolution_clock::now();
 
-		float elapsedTime[4];
+		float elapsedTime[5];
 		cudaEvent_t start, stop;
 		CUDA_CHECK(cudaEventCreate(&start));
 		CUDA_CHECK(cudaEventCreate(&stop));
@@ -74,45 +74,57 @@ namespace NXB
 		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[2], start, stop));
 		CUDA_CHECK(cudaEventRecord(start));
 
-		// Step 4: HPLOC binary BVH building
+		// Step 4: Initialize clusters
+		// ===============================================================================
+		CUDA_CHECK(cudaLaunchKernel(InitClusters, gridSize, blockSize, args, 0, 0));
+		// ===============================================================================
+
+		CUDA_CHECK(cudaEventRecord(stop));
+		CUDA_CHECK(cudaEventSynchronize(stop));
+		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[3], start, stop));
+		CUDA_CHECK(cudaEventRecord(start));
+
+		// Step 5: HPLOC binary BVH building
 		// ===============================================================================
 		CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
 		// ===============================================================================
 
 		CUDA_CHECK(cudaEventRecord(stop));
 		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[3], start, stop));
+		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[4], start, stop));
 
-		float buildTime = elapsedTime[0] + elapsedTime[1] + elapsedTime[2] + elapsedTime[3];
+		float buildTime = elapsedTime[0] + elapsedTime[1] + elapsedTime[2] + elapsedTime[3] + elapsedTime[4];
 
-		std::cout << "Triangle count: " << primCount << std::endl;
-		std::cout << "Node count: " << primCount * 2 << std::endl << std::endl;
+		std::cout << "Primitive count: " << primCount << std::endl;
+		std::cout << "Node count: " << nodeCount << std::endl << std::endl;
 
 		std::cout << "---------- TIMINGS ----------" << std::endl << std::endl;
-		std::cout << "Scene bounds: " << elapsedTime[0] << " ms" << std::endl;
+		std::cout << "Mesh bounds: " << elapsedTime[0] << " ms" << std::endl;
 		std::cout << "Morton codes: " << elapsedTime[1] << " ms" << std::endl;
 		std::cout << "Radix sort: " << elapsedTime[2] << " ms" << std::endl;
-		std::cout << "Binary BVH building: " << elapsedTime[3] << " ms" << std::endl;
+		std::cout << "Clusters init: " << elapsedTime[3] << " ms" << std::endl;
+		std::cout << "Binary BVH building: " << elapsedTime[4] << " ms" << std::endl;
 		std::cout << "Total build time: " << buildTime << " ms" << std::endl << std::endl;
 
-		std::cout << "========== Building done ==========" << std::endl;
+		std::cout << "========== Building done ==========" << std::endl << std::endl;
+
+		// Create and return the binary BVH
+		BVH2 hostBvh;
+		hostBvh.primCount = primCount;
+		hostBvh.nodeCount = nodeCount;
+		hostBvh.nodes = buildState.nodes;
+		hostBvh.primIdx = buildState.primIdx;
+		CudaMemory::CopyAsync<AABB>(&hostBvh.bounds, buildState.sceneBounds, 1, cudaMemcpyDeviceToHost);
+
+		// Copy to device
+		BVH2* deviceBvh = CudaMemory::AllocAsync<BVH2>(1);
+		CudaMemory::CopyAsync<BVH2>(deviceBvh, &hostBvh, 1, cudaMemcpyHostToDevice);
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);
 		CudaMemory::FreeAsync(buildState.mortonCodes);
 		CudaMemory::FreeAsync(buildState.clusterIdx);
 		CudaMemory::FreeAsync(buildState.parentIdx);
 		CudaMemory::FreeAsync(buildState.clusterCount);
-
-		// Create and return the binary BVH
-		BVH2 hostBvh;
-		hostBvh.primCount = primCount;
-		hostBvh.nodeCount = primCount * 2;
-		hostBvh.nodes = buildState.nodes;
-		hostBvh.primIdx = buildState.primIdx;
-
-		// Copy to device
-		BVH2* deviceBvh = CudaMemory::AllocAsync<BVH2>(1);
-		CudaMemory::Copy<BVH2>(deviceBvh, &hostBvh, 1, cudaMemcpyHostToDevice);
 
 		CUDA_CHECK(cudaDeviceSynchronize());
 

@@ -45,7 +45,7 @@ namespace NXB
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
 		// Load up to WARP_SIZE / 2 cluster indices
-		bool validLaneId = laneWarpId < min(end - start + 1, WARP_SIZE / 2);
+		bool validLaneId = laneWarpId < min(end - start, WARP_SIZE / 2);
 
 		if (validLaneId)
 			clusterIdx[laneWarpId + offset] = buildState.clusterIdx[start + laneWarpId];
@@ -58,19 +58,21 @@ namespace NXB
 		return validClusterCount;
 	}
 
-	static __device__ void StoreIndices(uint32_t numPrim, uint32_t* clusterIdx, BuildState buildState, uint32_t lStart)
+	static __device__ void StoreIndices(uint32_t previousNumPrim, uint32_t* clusterIdx, BuildState buildState, uint32_t lStart)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		if (laneWarpId < numPrim)
+		if (laneWarpId < previousNumPrim)
 			buildState.clusterIdx[lStart + laneWarpId] = clusterIdx[laneWarpId];
+
+		__threadfence();
 	}
 
 	// PLOC++ based merging
 	static __device__ uint32_t MergeClustersCreateBVH2Node(uint32_t numPrim, uint64_t* nearestNeighbors, uint32_t* clusterIdx, AABB* clusterBounds, BuildState buildState)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
-		uint32_t newClusterIdx;
+		uint32_t newClusterIdx = INVALID_IDX;
 		AABB newClusterBounds;
 		uint32_t nearestNeighbor;
 
@@ -113,21 +115,23 @@ namespace NXB
 		}
 
 		// Cluster idx compaction
-		uint32_t validMask = __ballot_sync(FULL_MASK, laneActive && (merge || !mutualNeighbor));
+		uint32_t validMask = __ballot_sync(FULL_MASK, merge || !mutualNeighbor);
 
 		// Shift = cluster idx before compaction
-		uint32_t shift = __fns(validMask, 0, laneWarpId + 1);
+		int32_t shift = __fns(validMask, 0, laneWarpId + 1);
 
-		// TODO: check that for shift = -1, the value taken by shfl is the value of the last thread in the warp
-		// Should be (based on CUDA C++ guide)
 		clusterIdx[laneWarpId] = __shfl_sync(FULL_MASK, newClusterIdx, shift);
+		if (shift == -1)
+			clusterIdx[laneWarpId] = INVALID_IDX;
 
 		AABB aabb;
 		aabb.bMin = shfl_sync(FULL_MASK, newClusterBounds.bMin, shift);
 		aabb.bMax = shfl_sync(FULL_MASK, newClusterBounds.bMax, shift);
 		clusterBounds[laneWarpId] = aabb;
 
-		return __popc(validMask);
+		__syncthreads();
+
+		return numPrim - mergeCount;
 	}
 
 	// PLOC++ based nearest neighbor search
@@ -173,23 +177,30 @@ namespace NXB
 	{
 		// Share current lane's LBVH node with other threads in the warp
 		uint32_t lStart = __shfl_sync(FULL_MASK, left, laneId);
-		uint32_t rEnd = __shfl_sync(FULL_MASK, right, laneId);
-		uint32_t lEnd = __shfl_sync(FULL_MASK, split, laneId) - 1;
-		uint32_t rStart = __shfl_sync(FULL_MASK, split, laneId);
+		uint32_t rEnd = __shfl_sync(FULL_MASK, right, laneId) + 1;
+		uint32_t lEnd = __shfl_sync(FULL_MASK, split, laneId);
+		uint32_t rStart = lEnd;
+
+		// Thread index in the warp
+		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
+
+		clusterIdx[laneWarpId] = INVALID_IDX;
+		__syncthreads();
 
 		// Load left and right child's cluster indices into shared memory
 		uint32_t numLeft = LoadIndices(lStart, lEnd, clusterIdx, buildState, 0);
 		uint32_t numRight = LoadIndices(rStart, rEnd, clusterIdx, buildState, numLeft);
 		uint32_t numPrim = numLeft + numRight;
 
-		// Thread index in the warp
-		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 		// Load cluster bounds in shared memory
 		if (laneWarpId < numPrim)
 			clusterBounds[laneWarpId] = buildState.nodes[clusterIdx[laneWarpId]].bounds;
 
+		__syncthreads();
+
 		// If we reached the root node, we want to merge all the remaining clusters (ie threshold = 1)
 		uint32_t threshold = __shfl_sync(FULL_MASK, final, laneId) ? 1 : WARP_SIZE / 2;
+
 
 		while (numPrim > threshold)
 		{
@@ -197,7 +208,7 @@ namespace NXB
 			numPrim = MergeClustersCreateBVH2Node(numPrim, nearestNeighbor, clusterIdx, clusterBounds, buildState);
 		}
 
-		StoreIndices(numPrim, clusterIdx, buildState, lStart);
+		StoreIndices(numLeft + numRight, clusterIdx, buildState, lStart);
 
 	}
 
@@ -215,27 +226,12 @@ namespace NXB
 		// Left and right bounds of the current LBVH node
 		uint32_t left = idx;
 		uint32_t right = idx;
+		uint32_t warpId = threadIdx.x / WARP_SIZE;
 
 		// Index of the current LBVH node
 		uint32_t split = 0;
 
-		bool laneActive = false;
-		if (idx < buildState.primCount)
-		{
-			laneActive = true;
-
-			// Initialize first N leaf nodes
-			BVH2::Node node;
-			node.bounds = buildState.primBounds[buildState.primIdx[idx]];
-			node.leftChild = INVALID_IDX;
-			node.rightChild = idx;
-			buildState.nodes[idx] = node;
-
-			// Initialize cluster indices to leaf node indices
-			buildState.clusterIdx[idx] = idx;
-
-			clusterBounds[blockIdx.x][idx] = node.bounds;
-		}
+		bool laneActive = idx < buildState.primCount;
 
 		// Do bottom-up traversal as long as active lanes in warp
 		while (__ballot_sync(FULL_MASK, laneActive))
@@ -289,7 +285,7 @@ namespace NXB
 				// Trailing zero count
 				uint32_t laneId = __ffs(warpMask) - 1;
 
-				PlocMerge(laneId, left, right, split, final, clusterIdx[blockIdx.x], nearestNeighbor[blockIdx.x], clusterBounds[blockIdx.x], buildState);
+				PlocMerge(laneId, left, right, split, final, clusterIdx[warpId], nearestNeighbor[warpId], clusterBounds[warpId], buildState);
 
 				// Remove last set bit
 				warpMask = warpMask & (warpMask - 1);

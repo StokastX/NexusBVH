@@ -32,6 +32,9 @@ namespace NXB
 
 		uint32_t* primIdx;
 		uint32_t primCount;
+
+		// Root bounds
+		AABB bounds;
 	};
 
 	// Compressed wide BVH (See Ylitie et al.)
@@ -65,5 +68,8 @@ namespace NXB
 
 		uint32_t* primIds;
 		uint32_t primCount;
+
+		// Root bounds
+		AABB bounds;
 	};
 }
