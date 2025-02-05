@@ -9,7 +9,7 @@ namespace NXB
 {
 	BVH2* BVHBuilder::BuildBinary(AABB* primitives, uint32_t primCount)
 	{
-		uint32_t nodeCount = primCount == 1 ? 2 : primCount * 2 - 1;
+		uint32_t nodeCount = primCount * 2 - 1;
 		BuildState buildState;
 		buildState.primCount = primCount;
 		buildState.primBounds = primitives;
@@ -22,10 +22,6 @@ namespace NXB
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
 
-		// For radix sort
-		uint64_t* mortonCodesSorted = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
-		uint32_t* primIdxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
-
 		// Init parent ids to -1
 		CudaMemory::MemsetAsync(buildState.parentIdx, -1, sizeof(int32_t) * primCount);
 
@@ -36,7 +32,7 @@ namespace NXB
 
 		void* args[1] = { &buildState };
 
-		std::cout << "========== Building binary BVH ==========" << std::endl << std::endl;
+		std::cout << std::endl << std::endl << "========== Building binary BVH ==========" << std::endl << std::endl;
 
 		float elapsedTime[5];
 		cudaEvent_t start, stop;
@@ -62,16 +58,12 @@ namespace NXB
 		CUDA_CHECK(cudaEventRecord(stop));
 		CUDA_CHECK(cudaEventSynchronize(stop));
 		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[1], start, stop));
-		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 3: one sweep radix sort for morton codes and primitive ids
 		// ===============================================================================
-		RadixSort(buildState, mortonCodesSorted, primIdxSorted);
+		elapsedTime[2] = RadixSort(buildState);
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(stop));
-		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[2], start, stop));
 		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 4: Initialize clusters
@@ -92,6 +84,8 @@ namespace NXB
 		CUDA_CHECK(cudaEventRecord(stop));
 		CUDA_CHECK(cudaEventSynchronize(stop));
 		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[4], start, stop));
+		CUDA_CHECK(cudaEventDestroy(start));
+		CUDA_CHECK(cudaEventDestroy(stop));
 
 		float buildTime = elapsedTime[0] + elapsedTime[1] + elapsedTime[2] + elapsedTime[3] + elapsedTime[4];
 

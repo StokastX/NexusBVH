@@ -6,6 +6,7 @@
 #include "Math/AABB.h"
 
 #define WARP_SIZE 32
+#define SEARCH_RADIUS 8
 #define BLOCK_SIZE 64
 #define FULL_MASK 0xffffffff
 
@@ -147,7 +148,7 @@ namespace NXB
 			AABB aabb = clusterBounds[laneWarpId];
 			uint64_t minAreaIdx = (uint64_t)(-1);
 
-			for (uint32_t r = 1; r <= WARP_SIZE / 2; r++)
+			for (uint32_t r = 1; r <= SEARCH_RADIUS; r++)
 			{
 				uint32_t neighborIdx = laneWarpId + r;
 
