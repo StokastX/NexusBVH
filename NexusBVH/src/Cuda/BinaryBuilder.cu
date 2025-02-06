@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-#include "Math/AABB.h"
+#include "NXB/AABB.h"
 
 #define WARP_SIZE 32
 #define SEARCH_RADIUS 8

@@ -5,17 +5,12 @@ set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 file(GLOB src
 	src/Main.cpp
+	src/CudaUtils.h
 )
 
 add_executable(Test ${src})
 target_link_libraries(Test
 	NexusBVH
-)
-
-target_include_directories(Test
-	PUBLIC
-	src
-	../NexusBVH/src
 )
 
 target_include_directories(Test

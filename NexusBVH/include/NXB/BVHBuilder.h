@@ -1,30 +1,31 @@
 #pragma once
-#include "BVH/BVH.h"
-#include "Math/AABB.h"
-#include "Math/Triangle.h"
+#include "BVH.h"
+#include "AABB.h"
+#include "Triangle.h"
+#include "BVHBuildMetrics.h"
 
 namespace NXB
 {
 	class BVHBuilder
 	{
 	public:
-		/* \brief Builds a BVH from a list of primitives
+		/* \brief Builds a binary BVH from a list of primitives
 		 *
 		 * \param primitives The primitives the BVH will be built from
 		 * \param primCount The number of primitives
 		 * 
 		 * \returns A pointer to the device instance of the newly created binary BVH
 		 */
-		BVH2* BuildBinary(AABB* primitives, uint32_t primCount);
+		BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics = nullptr);
 
-		/* \brief Builds a BVH from a list of primitives
+		/* \brief Builds a binary BVH from a list of primitives
 		 *
 		 * \param primitives The primitives the BVH will be built from
 		 * \param primCount The number of primitives
 		 * 
 		 * \returns A pointer to the device instance of the newly created binary BVH
 		 */
-		BVH2* BuildBinary(Triangle* primitives, uint32_t primCount);
+		BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics = nullptr);
 
 		/* \brief Converts a binary BVH into a compressed wide BVH
 		 *
@@ -32,7 +33,7 @@ namespace NXB
 		 * 
 		 * \returns A pointer to the device instance of the newly created compressed wide BVH
 		 */
-		BVH8* ConvertToWideBVH(BVH2* binaryBVH);
+		BVH8* ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics = nullptr);
 
 		/*
 		 * \brief Free the device instance of the binary BVH

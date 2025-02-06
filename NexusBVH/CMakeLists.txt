@@ -4,9 +4,14 @@ enable_language(CUDA)
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 file(GLOB src
-    src/BVHBuilder.h
+    include/NXB/BVHBuilder.h
+    include/NXB/BVHBuildMetrics.h
+    include/NXB/BVH.h
+    include/NXB/Triangle.h
+    include/NXB/AABB.h
+    include/NXB/Math/CudaMath.h
+
     src/BVHBuilder.cpp
-    src/BVH/BVH.h
 
     src/Cuda/BinaryBuilder.h
     src/Cuda/BinaryBuilder.cu
@@ -19,9 +24,6 @@ file(GLOB src
     src/Cuda/CudaUtils.h
 
     src/Math/Math.h
-    src/Math/CudaMath.h
-    src/Math/Triangle.h
-    src/Math/AABB.h
 )
 
 add_library(NexusBVH STATIC ${src})
@@ -29,7 +31,9 @@ set_target_properties(NexusBVH PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 
 target_include_directories(NexusBVH
     PUBLIC
-    src
+		include
+    PRIVATE
+        src
 )
 
 # CUDA optimizations

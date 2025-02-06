@@ -1,8 +1,8 @@
 #pragma once
 
 #include <iostream>
-#include "Math/AABB.h"
-#include "BVH/BVH.h"
+#include "NXB/AABB.h"
+#include "NXB/BVH.h"
 
 namespace NXB
 {

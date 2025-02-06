@@ -1,4 +1,4 @@
-#include "BVHBuilder.h"
+#include "NXB/BVHBuilder.h"
 
 #include "Math/Math.h"
 #include "Cuda/CudaUtils.h"
@@ -7,7 +7,7 @@
 
 namespace NXB
 {
-	BVH2* BVHBuilder::BuildBinary(AABB* primitives, uint32_t primCount)
+	BVH2* BVHBuilder::BuildBinary(AABB* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = primCount * 2 - 1;
 		BuildState buildState;
@@ -32,75 +32,87 @@ namespace NXB
 
 		void* args[1] = { &buildState };
 
-		std::cout << std::endl << std::endl << "========== Building binary BVH ==========" << std::endl << std::endl;
-
-		float elapsedTime[5];
 		cudaEvent_t start, stop;
 		CUDA_CHECK(cudaEventCreate(&start));
 		CUDA_CHECK(cudaEventCreate(&stop));
-		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 1: Compute scene bounding box
 		// ===============================================================================
-		CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds, gridSize, blockSize, args, 0, 0));
+		if (buildMetrics)
+		{
+			CUDA_CHECK(cudaEventRecord(start));
+			CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->computeSceneBoundsTime, start, stop));
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds, gridSize, blockSize, args, 0, 0));
+		}
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(stop));
-		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[0], start, stop));
-		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 2: compute morton codes
 		// ===============================================================================
-		CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+		if (buildMetrics)
+		{
+			CUDA_CHECK(cudaEventRecord(start));
+			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->computeMortonCodesTime, start, stop));
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+		}
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(stop));
-		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[1], start, stop));
 
-		// Step 3: one sweep radix sort for morton codes and primitive ids
+		// Step 3: one sweep radix sort for morton codes (keys) and primitive ids (values)
 		// ===============================================================================
-		elapsedTime[2] = RadixSort(buildState);
+		RadixSort(buildState, buildMetrics);
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 4: Initialize clusters
 		// ===============================================================================
-		CUDA_CHECK(cudaLaunchKernel(InitClusters, gridSize, blockSize, args, 0, 0));
+		if (buildMetrics)
+		{
+			CUDA_CHECK(cudaEventRecord(start));
+			CUDA_CHECK(cudaLaunchKernel(InitClusters, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->initClustersTime, start, stop));
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(InitClusters, gridSize, blockSize, args, 0, 0));
+		}
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(stop));
-		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[3], start, stop));
-		CUDA_CHECK(cudaEventRecord(start));
 
 		// Step 5: HPLOC binary BVH building
 		// ===============================================================================
-		CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
+		if (buildMetrics)
+		{
+			CUDA_CHECK(cudaEventRecord(start));
+			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->bvhBuildTime, start, stop));
+			buildMetrics->totalTime = buildMetrics->computeTriangleBoundsTime + buildMetrics->computeSceneBoundsTime
+				+ buildMetrics->computeMortonCodesTime + buildMetrics->initClustersTime + buildMetrics->bvhBuildTime;
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
+		}
 		// ===============================================================================
 
-		CUDA_CHECK(cudaEventRecord(stop));
-		CUDA_CHECK(cudaEventSynchronize(stop));
-		CUDA_CHECK(cudaEventElapsedTime(&elapsedTime[4], start, stop));
 		CUDA_CHECK(cudaEventDestroy(start));
 		CUDA_CHECK(cudaEventDestroy(stop));
-
-		float buildTime = elapsedTime[0] + elapsedTime[1] + elapsedTime[2] + elapsedTime[3] + elapsedTime[4];
-
-		std::cout << "Primitive count: " << primCount << std::endl;
-		std::cout << "Node count: " << nodeCount << std::endl << std::endl;
-
-		std::cout << "---------- TIMINGS ----------" << std::endl << std::endl;
-		std::cout << "Mesh bounds: " << elapsedTime[0] << " ms" << std::endl;
-		std::cout << "Morton codes: " << elapsedTime[1] << " ms" << std::endl;
-		std::cout << "Radix sort: " << elapsedTime[2] << " ms" << std::endl;
-		std::cout << "Clusters init: " << elapsedTime[3] << " ms" << std::endl;
-		std::cout << "Binary BVH building: " << elapsedTime[4] << " ms" << std::endl;
-		std::cout << "Total build time: " << buildTime << " ms" << std::endl << std::endl;
-
-		std::cout << "========== Building done ==========" << std::endl << std::endl;
 
 		// Create and return the binary BVH
 		BVH2 hostBvh;
@@ -125,7 +137,7 @@ namespace NXB
 		return deviceBvh;
 	}
 
-	BVH2* BVHBuilder::BuildBinary(Triangle* primitives, uint32_t primCount)
+	BVH2* BVHBuilder::BuildBinary(Triangle* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics)
 	{
 		BuildState buildState;
 		buildState.primCount = primCount;
@@ -136,12 +148,35 @@ namespace NXB
 
 		void* args[2] = { &buildState, &primitives };
 
+		cudaEvent_t start, stop;
+		CUDA_CHECK(cudaEventCreate(&start));
+		CUDA_CHECK(cudaEventCreate(&stop));
+
 		// Step 0: compute triangle bounding boxes
 		// ==============================================================================
-		CUDA_CHECK(cudaLaunchKernel(ComputePrimBounds, gridSize, blockSize, args, 0, 0));
+		if (buildMetrics)
+		{
+			CUDA_CHECK(cudaEventRecord(start));
+			CUDA_CHECK(cudaLaunchKernel(ComputePrimBounds, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->computeTriangleBoundsTime, start, stop));
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(ComputePrimBounds, gridSize, blockSize, args, 0, 0));
+		}
+		// ==============================================================================
+		
+
+		// Step 1 - 5: build BVH
+		// ==============================================================================
+		BVH2* bvh = BuildBinary(buildState.primBounds, primCount, buildMetrics);
 		// ==============================================================================
 
-		BVH2* bvh = BuildBinary(buildState.primBounds, primCount);
+
+		CUDA_CHECK(cudaEventDestroy(start));
+		CUDA_CHECK(cudaEventDestroy(stop));
 
 		CudaMemory::FreeAsync(buildState.primBounds);
 
@@ -150,7 +185,7 @@ namespace NXB
 		return bvh;
 	}
 
-	BVH8* BVHBuilder::ConvertToWideBVH(BVH2* binaryBVH)
+	BVH8* BVHBuilder::ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)
 	{
 		return nullptr;
 	}

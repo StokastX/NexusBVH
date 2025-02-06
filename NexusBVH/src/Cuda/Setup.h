@@ -2,8 +2,9 @@
 
 #include <cuda_runtime.h>
 #include <iostream>
-#include "Math/AABB.h"
-#include "Math/Triangle.h"
+#include "NXB/AABB.h"
+#include "NXB/Triangle.h"
+#include "NXB/BVHBuildMetrics.h"
 #include "BuildState.h"
 
 namespace NXB
@@ -28,7 +29,7 @@ namespace NXB
 	/*
 	 * \brief Performs one sweep radix sort for 64-bit Morton codes
 	 */
-	float RadixSort(BuildState& buildState);
+	void RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics);
 
 	/*
 	 * \brief Initialize the data (leaf nodes, clusters) required for HPLOC kernel

@@ -69,7 +69,7 @@ __global__ void NXB::ComputeMortonCodes(BuildState buildState)
 	buildState.primIdx[primIdx] = primIdx;
 }
 
-float NXB::RadixSort(BuildState& buildState)
+void NXB::RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics)
 {
 	using byte = unsigned char;
 
@@ -95,9 +95,13 @@ float NXB::RadixSort(BuildState& buildState)
 	tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
 
 	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-	cudaEventRecord(start);
+
+	if (buildMetrics)
+	{
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+		cudaEventRecord(start);
+	}
 
 	// Perform radix sorting
 	cub::DeviceRadixSort::SortPairs(
@@ -112,10 +116,12 @@ float NXB::RadixSort(BuildState& buildState)
 		64
 	);
 
-	float elapsedTime;
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(&elapsedTime, start, stop);
+	if (buildMetrics)
+	{
+		cudaEventRecord(stop);
+		cudaEventSynchronize(stop);
+		cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop);
+	}
 
 	CudaMemory::FreeAsync(tempStorage);
 
@@ -124,8 +130,6 @@ float NXB::RadixSort(BuildState& buildState)
 
 	buildState.mortonCodes = mortonCodesSorted;
 	buildState.primIdx = primIdxSorted;
-
-	return elapsedTime;
 }
 
 __global__ void NXB::InitClusters(BuildState buildState)

@@ -3,8 +3,8 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-#include "Math/CudaMath.h"
-#include "Math/AABB.h"
+#include "NXB/Math/CudaMath.h"
+#include "NXB/AABB.h"
 
 namespace NXB
 {

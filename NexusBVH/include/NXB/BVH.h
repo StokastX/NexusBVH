@@ -2,7 +2,7 @@
 
 #include <iostream>
 #include "Math/CudaMath.h"
-#include "Math/AABB.h"
+#include "AABB.h"
 
 #define INVALID_IDX (uint32_t)(-1)
 

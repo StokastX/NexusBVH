@@ -2,7 +2,7 @@
 
 #include <cuda_runtime.h>
 
-#include "CudaMath.h"
+#include "Math/CudaMath.h"
 #include "AABB.h"
 
 namespace NXB
