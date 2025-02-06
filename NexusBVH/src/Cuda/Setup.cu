@@ -95,11 +95,11 @@ void NXB::RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics)
 	tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
 
 	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 
 	if (buildMetrics)
 	{
-		cudaEventCreate(&start);
-		cudaEventCreate(&stop);
 		cudaEventRecord(start);
 	}
 
@@ -122,6 +122,9 @@ void NXB::RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics)
 		cudaEventSynchronize(stop);
 		cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop);
 	}
+
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
 
 	CudaMemory::FreeAsync(tempStorage);
 

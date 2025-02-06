@@ -17,7 +17,6 @@ namespace NXB
 		buildState.mortonCodes = CudaMemory::AllocAsync<uint64_t>(primCount);
 		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(nodeCount);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
-		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
@@ -190,7 +189,7 @@ namespace NXB
 		return nullptr;
 	}
 
-	void BVHBuilder::FreeBVH(BVH2* bvh2)
+	void FreeBVH(BVH2* bvh2)
 	{
 		BVH2 hostBvh;
 		CudaMemory::Copy<BVH2>(&hostBvh, bvh2, 1, cudaMemcpyDeviceToHost);
@@ -199,7 +198,7 @@ namespace NXB
 		CudaMemory::Free(bvh2);
 	}
 
-	void BVHBuilder::FreeBVH(BVH8* wideBVH)
+	void FreeBVH(BVH8* wideBVH)
 	{
 
 	}
