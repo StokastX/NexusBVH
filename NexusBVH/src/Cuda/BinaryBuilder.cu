@@ -20,6 +20,14 @@ namespace NXB
 		return make_float3(x, y, z);
 	}
 
+	// uint2 version of __shfl_sync
+	static __forceinline__ __device__ uint2 shfl_sync(uint32_t mask, uint2 value, uint32_t shift)
+	{
+		uint32_t x = __shfl_sync(mask, value.x, shift);
+		uint32_t y = __shfl_sync(mask, value.y, shift);
+		return make_uint2(x, y);
+	}
+
 	// AABB version of __shfl_sync
 	static __forceinline__ __device__ AABB shfl_sync(uint32_t mask, AABB value, uint32_t shift)
 	{
@@ -138,12 +146,12 @@ namespace NXB
 	{
 		int32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		uint64_t minAreaIdx = (uint64_t)(-1);
+		uint2 minAreaIdx = make_uint2(INVALID_IDX);
 
 		for (int32_t r = 1; r <= SEARCH_RADIUS; r++)
 		{
 			uint32_t neighborIdx = laneWarpId + r;
-			uint64_t encode1 = (uint64_t)(-1);
+			uint32_t area = (uint32_t)(-1);
 			AABB neighborBounds = shfl_sync(FULL_MASK, clusterBounds, neighborIdx);
 
 			if (neighborIdx < numPrim)
@@ -151,27 +159,26 @@ namespace NXB
 				neighborBounds.Grow(clusterBounds);
 
 				// Encode area + neighbor index in a 64-bit variable
-				uint32_t area = __float_as_uint(neighborBounds.Area());
-				uint64_t encode0 = (uint64_t)area << 32 | neighborIdx;
-				encode1 = (uint64_t)area << 32 | laneWarpId;
+				area = __float_as_uint(neighborBounds.Area());
 
 				// Update min_distance[i, i + r]
-				minAreaIdx = min(minAreaIdx, encode0);
+				if (area < minAreaIdx.x)
+					minAreaIdx = make_uint2(area, neighborIdx);
 			}
 
 			// Get nearest neighbor of cluster i + r
-			uint64_t neighborNN = __shfl_sync(FULL_MASK, minAreaIdx, neighborIdx);
+			uint2 neighborNN = shfl_sync(FULL_MASK, minAreaIdx, neighborIdx);
 
 			// Update min_distance[i + r, i]
-			neighborNN = min(neighborNN, encode1);
+			if (area < neighborNN.x)
+				neighborNN = make_uint2(area, laneWarpId);
 
 			// Get result back from cluster i - r
-			minAreaIdx = __shfl_sync(FULL_MASK, neighborNN, laneWarpId - r);
+			minAreaIdx = shfl_sync(FULL_MASK, neighborNN, laneWarpId - r);
 		}
 
-		return minAreaIdx & 0xffffffff;
+		return minAreaIdx.y;
 	}
-
 
 	static __device__ void PlocMerge(uint32_t laneId, uint32_t left, uint32_t right, uint32_t split, bool final, BuildState buildState)
 	{
@@ -207,7 +214,7 @@ namespace NXB
 		StoreIndices(numLeft + numRight, clusterIdx, buildState, lStart);
 	}
 
-	__global__ void NXB::BuildBinaryBVH(BuildState buildState)
+	__global__ void BuildBinaryBVH(BuildState buildState)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 

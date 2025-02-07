@@ -102,7 +102,7 @@ namespace NXB
 			CUDA_CHECK(cudaEventSynchronize(stop));
 			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->bvhBuildTime, start, stop));
 			buildMetrics->totalTime = buildMetrics->computeTriangleBoundsTime + buildMetrics->computeSceneBoundsTime
-				+ buildMetrics->computeMortonCodesTime + buildMetrics->initClustersTime + buildMetrics->bvhBuildTime;
+				+ buildMetrics->computeMortonCodesTime + buildMetrics->radixSortTime + buildMetrics->initClustersTime + buildMetrics->bvhBuildTime;
 		}
 		else
 		{
