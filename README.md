@@ -7,7 +7,7 @@ It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/36
 
 All times are in milliseconds. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).**
 
-| Scene (Triangles)      | Triangle Bounds | Scene Bounds | Morton Codes | Radix Sort (64-bit) | Cluster Init | BVH2  | Total  |
+| Scene (Triangles)      | Triangle Bounds | Scene Bounds | Morton Codes | Radix Sort (64-bit) | Cluster Init | BVH2 (HPLOC R=8)  | Total  |
 |------------------------|----------------|--------------|--------------|----------------------|-------------|------|--------|
 | **Sponza (0.3M)**      | 0.07           | 0.08         | 0.01         | 0.29                 | 0.05        | 0.34 | 0.84   |
 | **Buddha (1.1M)**      | 0.26           | 0.30         | 0.10         | 0.67                 | 0.32        | 1.03 | 2.68   |
