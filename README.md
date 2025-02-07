@@ -5,7 +5,7 @@ It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/36
 
 ## BVH Construction Benchmark
 
-All times are in milliseconds. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).** BVH2 refers to the H-PLOC kernel with a search radius of 8.
+All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).** BVH2 refers to the H-PLOC kernel with a search radius of 8.
 
 | Scene (Triangles)      | Triangle Bounds | Scene Bounds | Morton Codes | Radix Sort (64-bit) | Cluster Init | BVH2 | Total  |
 |------------------------|----------------|--------------|--------------|----------------------|-------------|------|--------|
