@@ -1,7 +1,7 @@
 # Nexus BVH
 
 Fast and high quality GPU BVH builder written in C++ and CUDA.
-It implements H-PLOC [[Benthin et al. 2024](https://dl.acm.org/doi/10.1145/3675377)] algorithm.
+It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/3675377) algorithm.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ It implements H-PLOC [[Benthin et al. 2024](https://dl.acm.org/doi/10.1145/36753
 
 ## Resources
 
-- H-PLOC: [[Benthin et al. 2024](https://dl.acm.org/doi/10.1145/3675377)]
-- PLOC++: [[Benthin et al. 2022](https://dl.acm.org/doi/10.1145/3543867)]
-- PLOC: [[Meister and Bittner 2018](https://ieeexplore.ieee.org/document/7857089)]
-- Bottom-up LBVH traversal: [[Apetrei 2014]([https://ieeexplore.ieee.org/document/7857089](https://doi.org/10.2312/cgvc.20141206))]
+- H-PLOC: [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/3675377)
+- PLOC++: [\[Benthin et al. 2022\]](https://dl.acm.org/doi/10.1145/3543867)
+- PLOC: [\[Meister and Bittner 2018\]](https://ieeexplore.ieee.org/document/7857089)
+- Bottom-up LBVH traversal: [\[Apetrei 2014\]](https://doi.org/10.2312/cgvc.20141206)
