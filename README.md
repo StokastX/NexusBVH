@@ -9,7 +9,7 @@ All times are in milliseconds and represent kernel execution times measured on t
 
 BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **4× slower**.
 
-| Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort (32-bit) | BVH2  | Total  |
+| Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort           | BVH2  | Total  |
 |------------------------|--------------|--------------|----------------------|------|--------|
 | **Sponza (0.3M)**      | 0.11         | 0.01         | 0.15                 | 0.37 | 0.64   |
 | **Buddha (1.1M)**      | 0.37         | 0.20         | 0.28                 | 1.02 | 1.88   |
