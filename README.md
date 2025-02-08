@@ -5,15 +5,17 @@ It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/36
 
 ## BVH Construction Benchmark
 
-All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).** BVH2 refers to the H-PLOC kernel with a search radius of 8.
+All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).** 
 
-| Scene (Triangles)      | Triangle Bounds | Scene Bounds | Morton Codes | Radix Sort (64-bit) | Cluster Init | BVH2 | Total  |
-|------------------------|----------------|--------------|--------------|----------------------|-------------|------|--------|
-| **Sponza (0.3M)**      | 0.07           | 0.08         | 0.01         | 0.29                 | 0.05        | 0.34 | 0.84   |
-| **Buddha (1.1M)**      | 0.26           | 0.30         | 0.10         | 0.67                 | 0.32        | 1.03 | 2.68   |
-| **Hairball (2.9M)**    | 0.71           | 1.09         | 0.36         | 3.31                 | 0.78        | 2.21 | 8.46   |
-| **Bistro (3.8M)**      | 0.73           | 0.86         | 0.36         | 3.30                 | 0.77        | 2.49 | 8.52   |
-| **Powerplant (12.7M)** | 3.23           | 3.04         | 1.87         | 17.80                | 3.42        | 8.93 | 38.25  |
+BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **4× slower**.
+
+| Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort (32-bit) | BVH2  | Total  |
+|------------------------|--------------|--------------|----------------------|------|--------|
+| **Sponza (0.3M)**      | 0.11         | 0.01         | 0.15                 | 0.37 | 0.64   |
+| **Buddha (1.1M)**      | 0.37         | 0.20         | 0.28                 | 1.02 | 1.88   |
+| **Hairball (2.9M)**    | 1.21         | 0.49         | 0.83                 | 2.03 | 4.56   |
+| **Bistro (3.8M)**      | 0.99         | 0.48         | 0.81                 | 2.33 | 4.61   |
+| **Powerplant (12.7M)** | 3.64         | 2.04         | 5.34                 | 8.59 | 19.60  |
 
 
 ## Prerequisites
