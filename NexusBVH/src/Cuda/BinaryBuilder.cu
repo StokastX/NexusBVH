@@ -1,4 +1,5 @@
 #include "BinaryBuilder.h"
+#include "BuilderUtils.h"
 #include <iostream>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
@@ -11,34 +12,6 @@
 
 namespace NXB
 {
-	// float3 version of __shfl_sync
-	static __forceinline__ __device__ float3 shfl_sync(uint32_t mask, float3 value, uint32_t shift)
-	{
-		float x = __shfl_sync(mask, value.x, shift);
-		float y = __shfl_sync(mask, value.y, shift);
-		float z = __shfl_sync(mask, value.z, shift);
-		return make_float3(x, y, z);
-	}
-
-	// uint2 version of __shfl_sync
-	static __forceinline__ __device__ uint2 shfl_sync(uint32_t mask, uint2 value, uint32_t shift)
-	{
-		uint32_t x = __shfl_sync(mask, value.x, shift);
-		uint32_t y = __shfl_sync(mask, value.y, shift);
-		return make_uint2(x, y);
-	}
-
-	// AABB version of __shfl_sync
-	static __forceinline__ __device__ AABB shfl_sync(uint32_t mask, AABB value, uint32_t shift)
-	{
-		float3 bMin = shfl_sync(mask, value.bMin, shift);
-		float3 bMax = shfl_sync(mask, value.bMax, shift);
-		AABB aabb;
-		aabb.bMin = bMin;
-		aabb.bMax = bMax;
-		return aabb;
-	}
-
 	// Highest differing bit.
 	// "In practice, logical xor can be used instead of finding the index as we can compare the numbers." (Apetrei)
 	static __forceinline__ __device__ uint32_t Delta(uint32_t a, uint32_t b, uint64_t* mortonCodes)

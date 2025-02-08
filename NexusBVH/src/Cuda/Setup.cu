@@ -6,19 +6,7 @@
 #include "CudaUtils.h"
 #include "BuilderUtils.h"
 
-__global__ void NXB::ComputePrimBounds(BuildState buildState, Triangle* primitives)
-{
-	uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (primIdx >= buildState.primCount)
-		return;
-
-	Triangle triangle = primitives[primIdx];
-
-	buildState.primBounds[primIdx] = triangle.Bounds();
-}
-
-__global__ void NXB::ComputeSceneBounds(BuildState buildState)
+__global__ void NXB::ComputeSceneBounds(BuildState buildState, Triangle* primitives)
 {
 	uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -40,8 +28,50 @@ __global__ void NXB::ComputeSceneBounds(BuildState buildState)
 
 	__syncthreads();
 
-	AABB primBounds = buildState.primBounds[primIdx];
-	AtomicGrow(&sharedBounds, primBounds);
+	BVH2::Node node;
+	node.bounds = primitives[primIdx].Bounds();
+	node.leftChild = INVALID_IDX;
+	node.rightChild = primIdx;
+	buildState.nodes[primIdx] = node;
+
+	AtomicGrow(&sharedBounds, node.bounds);
+
+	__syncthreads();
+
+	// Scene bounds update
+	if (threadIdx.x == 0)
+		AtomicGrow(buildState.sceneBounds, sharedBounds);
+}
+
+__global__ void NXB::ComputeSceneBounds(BuildState buildState, AABB* primitives)
+{
+	uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	// Make sure to initialize scene bounds
+	if (primIdx == 0)
+		buildState.sceneBounds->Clear();
+
+	__syncthreads();
+
+	if (primIdx >= buildState.primCount)
+		return;
+
+	// Shared bounds to parallelize atomic operations across thread blocks before updating the global scene bounds
+	__shared__ AABB sharedBounds;
+
+	// Clear shared AABB
+	if (threadIdx.x == 0)
+		sharedBounds.Clear();
+
+	__syncthreads();
+
+	BVH2::Node node;
+	node.bounds = primitives[primIdx];
+	node.leftChild = INVALID_IDX;
+	node.rightChild = primIdx;
+	buildState.nodes[primIdx] = node;
+
+	AtomicGrow(&sharedBounds, node.bounds);
 
 	__syncthreads();
 
@@ -57,16 +87,15 @@ __global__ void NXB::ComputeMortonCodes(BuildState buildState)
 	if (primIdx >= buildState.primCount)
 		return;
 
-	AABB primBounds = buildState.primBounds[primIdx];
+	AABB primBounds = buildState.nodes[primIdx].bounds;
 	AABB *sceneBounds = buildState.sceneBounds;
 	float3 centroid = primBounds.Centroid();
 
-	// TODO: change division into mutliplication (store the inverse scene bounds)
 	uint64_t mortonCode = MortonCode((centroid - sceneBounds->bMin) / (sceneBounds->bMax - sceneBounds->bMin));
 	buildState.mortonCodes[primIdx] = mortonCode;
 
-	// Initialize primitive indices as well
-	buildState.primIdx[primIdx] = primIdx;
+	// Initialize cluster indices as well
+	buildState.clusterIdx[primIdx] = primIdx;
 }
 
 void NXB::RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics)
@@ -77,78 +106,58 @@ void NXB::RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics)
 	void* tempStorage = nullptr;
 
 	uint64_t* mortonCodesSorted = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
-	uint32_t* primIdxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+	uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+
+	cub::DoubleBuffer<uint64_t> keysBuffer(buildState.mortonCodes, mortonCodesSorted);
+	cub::DoubleBuffer<uint32_t> valuesBuffer(buildState.clusterIdx, clusteridxSorted);
 
 	// Get the temporary storage size necessary to perform radix sorting
 	cub::DeviceRadixSort::SortPairs(
 		tempStorage,	// NULL
 		tempStorageBytes,
-		buildState.mortonCodes,
-		mortonCodesSorted,
-		buildState.primIdx,
-		primIdxSorted,
+		keysBuffer,
+		valuesBuffer,
 		buildState.primCount,
-		0,
+		1,
 		64
 	);
 
 	tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
 
 	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-
 	if (buildMetrics)
 	{
-		cudaEventRecord(start);
+		CUDA_CHECK(cudaEventCreate(&start);
+		CUDA_CHECK(cudaEventCreate(&stop);
+		CUDA_CHECK(cudaDeviceSynchronize()));
+		CUDA_CHECK(cudaEventRecord(start)));
 	}
 
 	// Perform radix sorting
 	cub::DeviceRadixSort::SortPairs(
-		tempStorage,
+		tempStorage,	// NULL
 		tempStorageBytes,
-		buildState.mortonCodes,
-		mortonCodesSorted,
-		buildState.primIdx,
-		primIdxSorted,
+		keysBuffer,
+		valuesBuffer,
 		buildState.primCount,
-		0,
+		1,
 		64
 	);
 
 	if (buildMetrics)
 	{
-		cudaEventRecord(stop);
-		cudaEventSynchronize(stop);
-		cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop);
+		CUDA_CHECK(cudaEventRecord(stop));
+		CUDA_CHECK(cudaEventSynchronize(stop));
+		CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop));
+		CUDA_CHECK(cudaEventDestroy(start));
+		CUDA_CHECK(cudaEventDestroy(stop));
 	}
 
-	cudaEventDestroy(start);
-	cudaEventDestroy(stop);
+	buildState.mortonCodes = keysBuffer.Current();
+	buildState.clusterIdx = valuesBuffer.Current();
 
 	CudaMemory::FreeAsync(tempStorage);
 
-	CudaMemory::FreeAsync(buildState.mortonCodes);
-	CudaMemory::FreeAsync(buildState.primIdx);
-
-	buildState.mortonCodes = mortonCodesSorted;
-	buildState.primIdx = primIdxSorted;
-}
-
-__global__ void NXB::InitClusters(BuildState buildState)
-{
-	const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (idx < buildState.primCount)
-	{
-		// Initialize first N leaf nodes
-		BVH2::Node node;
-		node.bounds = buildState.primBounds[buildState.primIdx[idx]];
-		node.leftChild = INVALID_IDX;
-		node.rightChild = buildState.primIdx[idx];
-		buildState.nodes[idx] = node;
-
-		// Initialize cluster indices to leaf node indices
-		buildState.clusterIdx[idx] = idx;
-	}
+	CudaMemory::FreeAsync(keysBuffer.Alternate());
+	CudaMemory::FreeAsync(valuesBuffer.Alternate());
 }

@@ -9,17 +9,17 @@
 
 namespace NXB
 {
-	/* \brief Computes the AABBs of the triangles
-	 * 
-	 * \param primitives The list of triangles the AABBs will be computed from
-	 */
-	__global__ void ComputePrimBounds(BuildState buildState, Triangle* primitives);
-
 	/* \brief Computes the bounds of the scene
 	 * 
-	 * \param primitives The list scene primitives
+	 * \param primitives The list of bounding boxes
 	 */
-	__global__ void ComputeSceneBounds(BuildState buildState);
+	__global__ void ComputeSceneBounds(BuildState buildstate, AABB* primitives);
+
+	/* \brief Computes the bounds of both the triangles and the scene
+	 * 
+	 * \param primitives The list of triangles
+	 */
+	__global__ void ComputeSceneBounds(BuildState buildState, Triangle* primitives);
 
 	/*
 	 * \brief Compute a list of 64-bit Morton codes from the centroid of the AABBs contained in buildState

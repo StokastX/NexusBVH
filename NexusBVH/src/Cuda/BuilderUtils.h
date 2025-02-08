@@ -9,7 +9,7 @@
 namespace NXB
 {
 	// Float version of atomicMin
-	__device__ __forceinline__ void atomicMin(float* ptr, float value)
+	__device__ __forceinline__ void AtomicMin(float* ptr, float value)
 	{
 		unsigned int curr = atomicAdd((unsigned int*)ptr, 0);
 		while (value < __int_as_float(curr)) {
@@ -21,7 +21,7 @@ namespace NXB
 	}
 
 	// Float version of atomicMax
-	__device__ __forceinline__ void atomicMax(float* ptr, float value)
+	__device__ __forceinline__ void AtomicMax(float* ptr, float value)
 	{
 		unsigned int curr = atomicAdd((unsigned int*)ptr, 0);
 		while (value > __int_as_float(curr)) {
@@ -39,13 +39,41 @@ namespace NXB
 	 */
 	__device__ __forceinline__ void AtomicGrow(AABB* aabb, const AABB& other)
 	{
-		atomicMin(&aabb->bMin.x, other.bMin.x);
-		atomicMin(&aabb->bMin.y, other.bMin.y);
-		atomicMin(&aabb->bMin.z, other.bMin.z);
+		AtomicMin(&aabb->bMin.x, other.bMin.x);
+		AtomicMin(&aabb->bMin.y, other.bMin.y);
+		AtomicMin(&aabb->bMin.z, other.bMin.z);
 
-		atomicMax(&aabb->bMax.x, other.bMax.x);
-		atomicMax(&aabb->bMax.y, other.bMax.y);
-		atomicMax(&aabb->bMax.z, other.bMax.z);
+		AtomicMax(&aabb->bMax.x, other.bMax.x);
+		AtomicMax(&aabb->bMax.y, other.bMax.y);
+		AtomicMax(&aabb->bMax.z, other.bMax.z);
+	}
+
+	// float3 version of __shfl_sync
+	static __forceinline__ __device__ float3 shfl_sync(uint32_t mask, float3 value, uint32_t shift)
+	{
+		float x = __shfl_sync(mask, value.x, shift);
+		float y = __shfl_sync(mask, value.y, shift);
+		float z = __shfl_sync(mask, value.z, shift);
+		return make_float3(x, y, z);
+	}
+
+	// uint2 version of __shfl_sync
+	static __forceinline__ __device__ uint2 shfl_sync(uint32_t mask, uint2 value, uint32_t shift)
+	{
+		uint32_t x = __shfl_sync(mask, value.x, shift);
+		uint32_t y = __shfl_sync(mask, value.y, shift);
+		return make_uint2(x, y);
+	}
+
+	// AABB version of __shfl_sync
+	static __forceinline__ __device__ AABB shfl_sync(uint32_t mask, AABB value, uint32_t shift)
+	{
+		float3 bMin = shfl_sync(mask, value.bMin, shift);
+		float3 bMax = shfl_sync(mask, value.bMax, shift);
+		AABB aabb;
+		aabb.bMin = bMin;
+		aabb.bMax = bMax;
+		return aabb;
 	}
 
 	/* \brief Interleave the first 21 bits of x every three bits,

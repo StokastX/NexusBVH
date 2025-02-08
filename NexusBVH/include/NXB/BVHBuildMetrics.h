@@ -5,11 +5,9 @@ namespace NXB
 	struct BVHBuildMetrics
 	{
 		BVHBuildMetrics& operator+=(const BVHBuildMetrics& other) {
-			computeTriangleBoundsTime += other.computeTriangleBoundsTime;
 			computeSceneBoundsTime += other.computeSceneBoundsTime;
 			computeMortonCodesTime += other.computeMortonCodesTime;
 			radixSortTime += other.radixSortTime;
-			initClustersTime += other.initClustersTime;
 			bvhBuildTime += other.bvhBuildTime;
 			totalTime += other.totalTime;
 			cost += other.cost;
@@ -18,22 +16,18 @@ namespace NXB
 
 		BVHBuildMetrics operator/(float divisor) const {
 			BVHBuildMetrics result;
-			result.computeTriangleBoundsTime = computeTriangleBoundsTime / divisor;
 			result.computeSceneBoundsTime = computeSceneBoundsTime / divisor;
 			result.computeMortonCodesTime = computeMortonCodesTime / divisor;
 			result.radixSortTime = radixSortTime / divisor;
-			result.initClustersTime = initClustersTime / divisor;
 			result.bvhBuildTime = bvhBuildTime / divisor;
 			result.totalTime = totalTime / divisor;
 			result.cost = cost / divisor;
 			return result;
 		}
 
-		float computeTriangleBoundsTime = 0.0f;
 		float computeSceneBoundsTime = 0.0f;
 		float computeMortonCodesTime = 0.0f;
 		float radixSortTime = 0.0f;
-		float initClustersTime = 0.0f;
 		float bvhBuildTime = 0.0f;
 		float totalTime = 0.0f;
 
@@ -74,11 +68,9 @@ namespace NXB
 
 		std::cout << std::endl << "========== BENCHMARK RESULTS ==========" << std::endl << std::endl;
 
-		std::cout << "Triangle bounds: " << aggregatedMetrics.computeTriangleBoundsTime << " ms" << std::endl;
 		std::cout << "Scene bounds: " << aggregatedMetrics.computeSceneBoundsTime << " ms" << std::endl;
 		std::cout << "Morton codes: " << aggregatedMetrics.computeMortonCodesTime << " ms" << std::endl;
 		std::cout << "Radix sort: " << aggregatedMetrics.radixSortTime << " ms" << std::endl;
-		std::cout << "Clusters init: " << aggregatedMetrics.initClustersTime << " ms" << std::endl;
 		std::cout << "Bvh build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
 		std::cout << "Total BVH build time: " << aggregatedMetrics.totalTime << " ms" << std::endl;
 

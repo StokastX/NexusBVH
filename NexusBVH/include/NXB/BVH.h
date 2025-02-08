@@ -29,8 +29,6 @@ namespace NXB
 
 		Node* nodes;
 		uint32_t nodeCount;
-
-		uint32_t* primIdx;
 		uint32_t primCount;
 
 		// Root bounds
