@@ -2,7 +2,7 @@
 #include "BVH.h"
 #include "AABB.h"
 #include "Triangle.h"
-#include "BVHBuildMetrics.h"
+#include "BuildConfig.h"
 
 namespace NXB
 {
@@ -13,7 +13,7 @@ namespace NXB
 	 *
 	 * \returns A pointer to the device instance of the newly created binary BVH
 	 */
-	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics = nullptr);
+	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
 
 	/* \brief Builds a binary BVH from a list of primitives
 	 *
@@ -22,7 +22,7 @@ namespace NXB
 	 *
 	 * \returns A pointer to the device instance of the newly created binary BVH
 	 */
-	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics = nullptr);
+	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
 
 	/* \brief Converts a binary BVH into a compressed wide BVH
 	 *

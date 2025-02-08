@@ -4,12 +4,12 @@
 #include "Cuda/CudaUtils.h"
 #include "Cuda/BinaryBuilder.h"
 #include "Cuda/Setup.h"
+#include <chrono>
 
 namespace NXB
 {
-	BVH2* BuildBinary(BuildState buildState, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinary(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
-		buildState.mortonCodes = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
@@ -19,19 +19,25 @@ namespace NXB
 
 		CudaMemory::CopyAsync(buildState.clusterCount, &buildState.primCount, 1, cudaMemcpyHostToDevice);
 
+		void* args[1] = { &buildState };
+
 		const uint32_t blockSize = 64;
 		const uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
 
-		void* args[1] = { &buildState };
-
 		cudaEvent_t start, stop;
+		CUDA_CHECK(cudaEventCreate(&start));
+		CUDA_CHECK(cudaEventCreate(&stop));
+
+		if (buildConfig.prioritizeSpeed)
+			buildState.mortonCodes32 = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+		else
+			buildState.mortonCodes64 = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
+
 
 		// Step 2: Compute morton codes
 		// ===============================================================================
 		if (buildMetrics)
 		{
-			CUDA_CHECK(cudaEventCreate(&start));
-			CUDA_CHECK(cudaEventCreate(&stop));
 			CUDA_CHECK(cudaEventRecord(start));
 
 			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
@@ -47,16 +53,20 @@ namespace NXB
 		// ===============================================================================
 
 
-		// Step 3: One sweep radix sort for morton codes (keys) and primitive ids (values)
+		// Step 3: Sort morton codes
 		// ===============================================================================
-		RadixSort(buildState, buildMetrics);
+		if (buildConfig.prioritizeSpeed)
+			RadixSort32(buildState, buildMetrics);
+		else
+			RadixSort64(buildState, buildMetrics);
 		// ===============================================================================
 
 
-		// Step 4: HPLOC binary BVH building
+		// Step 3: HPLOC binary BVH building
 		// ===============================================================================
 		if (buildMetrics)
 		{
+			CUDA_CHECK(cudaDeviceSynchronize());
 			CUDA_CHECK(cudaEventRecord(start));
 
 			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
@@ -64,8 +74,6 @@ namespace NXB
 			CUDA_CHECK(cudaEventRecord(stop));
 			CUDA_CHECK(cudaEventSynchronize(stop));
 			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->bvhBuildTime, start, stop));
-			CUDA_CHECK(cudaEventDestroy(start));
-			CUDA_CHECK(cudaEventDestroy(stop));
 
 			buildMetrics->totalTime = buildMetrics->computeSceneBoundsTime + buildMetrics->computeMortonCodesTime
 				+ buildMetrics->radixSortTime + buildMetrics->bvhBuildTime;
@@ -75,6 +83,9 @@ namespace NXB
 			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
 		}
 		// ===============================================================================
+
+		CUDA_CHECK(cudaEventDestroy(start));
+		CUDA_CHECK(cudaEventDestroy(stop));
 
 		// Create and return the binary BVH
 		BVH2 hostBvh;
@@ -87,17 +98,18 @@ namespace NXB
 		BVH2* deviceBvh = CudaMemory::AllocAsync<BVH2>(1);
 		CudaMemory::CopyAsync<BVH2>(deviceBvh, &hostBvh, 1, cudaMemcpyHostToDevice);
 
-		CudaMemory::FreeAsync(buildState.mortonCodes);
 		CudaMemory::FreeAsync(buildState.parentIdx);
 		CudaMemory::FreeAsync(buildState.clusterIdx);
 		CudaMemory::FreeAsync(buildState.clusterCount);
+		CudaMemory::FreeAsync(buildState.mortonCodes32);
+		CudaMemory::FreeAsync(buildState.mortonCodes64);
 
 		return deviceBvh;
 	}
 
 
 	template<typename PrimT>
-	BVH2* BuildBinaryImpl(PrimT* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinaryImpl(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = primCount * 2 - 1;
 		BuildState buildState;
@@ -138,7 +150,7 @@ namespace NXB
 
 		// Step 2 - 4: Build BVH
 		// ==============================================================================
-		BVH2* bvh = BuildBinary(buildState, buildMetrics);
+		BVH2* bvh = BuildBinary(buildState, buildConfig, buildMetrics);
 		// ==============================================================================
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);
@@ -148,14 +160,14 @@ namespace NXB
 		return bvh;
 	}
 
-	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
-		return BuildBinaryImpl<AABB>(primitives, primCount, buildMetrics);
+		return BuildBinaryImpl<AABB>(primitives, primCount, buildConfig, buildMetrics);
 	}
 
-	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
-		return BuildBinaryImpl<Triangle>(primitives, primCount, buildMetrics);
+		return BuildBinaryImpl<Triangle>(primitives, primCount, buildConfig, buildMetrics);
 	}
 
 	BVH8* ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)

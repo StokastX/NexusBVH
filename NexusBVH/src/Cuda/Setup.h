@@ -22,14 +22,20 @@ namespace NXB
 	__global__ void ComputeSceneBounds(BuildState buildState, Triangle* primitives);
 
 	/*
-	 * \brief Compute a list of 64-bit Morton codes from the centroid of the AABBs contained in buildState
+	 * \brief Compute a list of Morton codes from the centroid of the nodes' AABBs contained in buildState
 	 */
 	__global__ void ComputeMortonCodes(BuildState buildState);
 
 	/*
+	 * \brief Performs one sweep radix sort for 32-bit Morton codes
+	 */
+	void RadixSort32(BuildState& buildState, BVHBuildMetrics* buildMetrics);
+
+	/*
 	 * \brief Performs one sweep radix sort for 64-bit Morton codes
 	 */
-	void RadixSort(BuildState& buildState, BVHBuildMetrics* buildMetrics);
+	void RadixSort64(BuildState& buildState, BVHBuildMetrics* buildMetrics);
+
 
 	/*
 	 * \brief Initialize the data (leaf nodes, clusters) required for HPLOC kernel

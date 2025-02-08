@@ -14,9 +14,18 @@ namespace NXB
 {
 	// Highest differing bit.
 	// "In practice, logical xor can be used instead of finding the index as we can compare the numbers." (Apetrei)
-	static __forceinline__ __device__ uint32_t Delta(uint32_t a, uint32_t b, uint64_t* mortonCodes)
+	static __forceinline__ __device__ uint64_t Delta(uint32_t a, uint32_t b, uint64_t* mortonCodes)
 	{
-		return mortonCodes[a] ^ mortonCodes[b];
+		uint64_t delta = mortonCodes[a] ^ mortonCodes[b];
+		if (delta == 0)
+			return a ^ b;
+
+		return delta;
+	}
+
+	static __forceinline__ __device__ uint64_t Delta(uint32_t a, uint32_t b, uint32_t* mortonCodes)
+	{
+		return ((uint64_t)mortonCodes[a] << 32 | a)  ^ ((uint64_t)mortonCodes[b] << 32 | b);
 	}
 
 	// From Ciprian Apetrei: "Fast and Simple Agglomerative LBVH Construction"
@@ -24,6 +33,14 @@ namespace NXB
 	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, uint64_t* mortonCodes)
 	{
 		// TODO: test "primCount - 1" differing from paper here
+		if (left == 0 || (right != primCount - 1 && Delta(right, right + 1, mortonCodes) < Delta(left - 1, left, mortonCodes)))
+			return right;
+		else
+			return left - 1;
+	}
+
+	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, uint32_t* mortonCodes)
+	{
 		if (left == 0 || (right != primCount - 1 && Delta(right, right + 1, mortonCodes) < Delta(left - 1, left, mortonCodes)))
 			return right;
 		else
@@ -187,6 +204,7 @@ namespace NXB
 		StoreIndices(numLeft + numRight, clusterIdx, buildState, lStart);
 	}
 
+
 	__global__ void BuildBinaryBVH(BuildState buildState)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -199,6 +217,7 @@ namespace NXB
 		uint32_t split = 0;
 
 		bool laneActive = idx < buildState.primCount;
+		bool mortonCodes32 = buildState.mortonCodes64 == nullptr;
 
 		// Do bottom-up traversal as long as active lanes in warp
 		while (__ballot_sync(FULL_MASK, laneActive))
@@ -206,7 +225,14 @@ namespace NXB
 			if (laneActive)
 			{
 				int32_t previousId;
-				if (FindParentId(left, right, buildState.primCount, buildState.mortonCodes) == right)
+				uint32_t parentId;
+
+				if (mortonCodes32)
+					parentId = FindParentId(left, right, buildState.primCount, buildState.mortonCodes32);
+				else
+					parentId = FindParentId(left, right, buildState.primCount, buildState.mortonCodes64);
+
+				if (parentId == right)
 				{
 					// Parent is at the right boundary, current LBVH node is its left child
 					previousId = atomicExch(&buildState.parentIdx[right], left);

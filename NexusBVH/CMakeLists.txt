@@ -6,6 +6,7 @@ set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 file(GLOB src
     include/NXB/BVHBuilder.h
     include/NXB/BVHBuildMetrics.h
+    include/NXB/BuildConfig.h
     include/NXB/BVH.h
     include/NXB/Triangle.h
     include/NXB/AABB.h
