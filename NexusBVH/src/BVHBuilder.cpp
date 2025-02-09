@@ -4,6 +4,7 @@
 #include "Cuda/CudaUtils.h"
 #include "Cuda/BinaryBuilder.h"
 #include "Cuda/Setup.h"
+#include "Cuda/Eval.h"
 #include <chrono>
 
 namespace NXB
@@ -11,6 +12,7 @@ namespace NXB
 	template <typename McT = uint64_t>
 	BVH2* BuildBinary(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
+		uint32_t nodeCount = buildState.primCount * 2 - 1;
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
@@ -22,8 +24,8 @@ namespace NXB
 
 		void* args[2] = { &buildState, &mortonCodes };
 
-		const uint32_t blockSize = 64;
-		const uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
+		uint32_t blockSize = 64;
+		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
 
 		cudaEvent_t start, stop;
 		CUDA_CHECK(cudaEventCreate(&start));
@@ -82,9 +84,22 @@ namespace NXB
 		// Create and return the binary BVH
 		BVH2 hostBvh;
 		hostBvh.primCount = buildState.primCount;
-		hostBvh.nodeCount = buildState.primCount * 2 - 1;
+		hostBvh.nodeCount = nodeCount;
 		hostBvh.nodes = buildState.nodes;
 		CudaMemory::CopyAsync<AABB>(&hostBvh.bounds, buildState.sceneBounds, 1, cudaMemcpyDeviceToHost);
+
+		if (buildMetrics)
+		{
+			float* cost = CudaMemory::AllocAsync<float>(1);
+			CudaMemory::MemsetAsync(cost, 0, 1);
+			void* args[2] = { &hostBvh, &cost };
+			uint32_t gridSize = DivideRoundUp(nodeCount, blockSize);
+
+			CUDA_CHECK(cudaLaunchKernel(ComputeBVHCost, gridSize, blockSize, args, 0, 0));
+
+			CudaMemory::CopyAsync(&buildMetrics->bvhCost, cost, 1, cudaMemcpyDeviceToHost);
+		}
+
 
 		// Copy to device
 		BVH2* deviceBvh = CudaMemory::AllocAsync<BVH2>(1);
@@ -109,7 +124,12 @@ namespace NXB
 		buildState.sceneBounds = CudaMemory::AllocAsync<AABB>(1);
 		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(nodeCount);
 
-		const uint32_t blockSize = 32;
+		// Clear scene bounds
+		AABB sceneBounds;
+		sceneBounds.Clear();
+		CudaMemory::CopyAsync(buildState.sceneBounds, &sceneBounds, 1, cudaMemcpyHostToDevice);
+
+		const uint32_t blockSize = 64;
 		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);
 
 		void* args[2] = { &buildState, &primitives };

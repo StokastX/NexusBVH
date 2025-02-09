@@ -23,6 +23,8 @@ file(GLOB src
     src/Cuda/BuildState.h
     src/Cuda/BuilderUtils.h
     src/Cuda/CudaUtils.h
+    src/Cuda/Eval.h
+    src/Cuda/Eval.cu
 
     src/Math/Math.h
 )

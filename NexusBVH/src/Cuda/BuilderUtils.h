@@ -7,6 +7,9 @@
 #include "NXB/AABB.h"
 #include "NXB/Triangle.h"
 
+#define FULL_MASK 0xffffffff
+#define WARP_SIZE 32
+
 namespace NXB
 {
 	// Float version of atomicMin
@@ -58,6 +61,15 @@ namespace NXB
 		return make_float3(x, y, z);
 	}
 
+	// float3 version of __shfl_down_sync
+	static __forceinline__ __device__ float3 shfl_down_sync(uint32_t mask, float3 value, uint32_t shift)
+	{
+		float x = __shfl_down_sync(mask, value.x, shift);
+		float y = __shfl_down_sync(mask, value.y, shift);
+		float z = __shfl_down_sync(mask, value.z, shift);
+		return make_float3(x, y, z);
+	}
+
 	// uint2 version of __shfl_sync
 	static __forceinline__ __device__ uint2 shfl_sync(uint32_t mask, uint2 value, uint32_t shift)
 	{
@@ -71,6 +83,17 @@ namespace NXB
 	{
 		float3 bMin = shfl_sync(mask, value.bMin, shift);
 		float3 bMax = shfl_sync(mask, value.bMax, shift);
+		AABB aabb;
+		aabb.bMin = bMin;
+		aabb.bMax = bMax;
+		return aabb;
+	}
+
+	// AABB version of __shfl_down_sync
+	static __forceinline__ __device__ AABB shfl_down_sync(uint32_t mask, AABB value, uint32_t shift)
+	{
+		float3 bMin = shfl_down_sync(mask, value.bMin, shift);
+		float3 bMax = shfl_down_sync(mask, value.bMax, shift);
 		AABB aabb;
 		aabb.bMin = bMin;
 		aabb.bMax = bMax;
@@ -236,6 +259,28 @@ namespace NXB
 
 	__device__ __forceinline__ AABB GetBounds(AABB bounds)
 	{
+		return bounds;
+	}
+
+	// Warp-level reduction
+	__device__ __forceinline__ float WarpReduce(uint32_t mask, float x)
+	{
+		x += __shfl_down_sync(mask, x, 16);
+		x += __shfl_down_sync(mask, x, 8);
+		x += __shfl_down_sync(mask, x, 4);
+		x += __shfl_down_sync(mask, x, 2);
+		x += __shfl_down_sync(mask, x, 1);
+		return x;
+	}
+
+	// Warp-level AABB reduction
+	__device__ __forceinline__ AABB WarpReduce(uint32_t mask, AABB bounds)
+	{
+		bounds.Grow(shfl_down_sync(mask, bounds, 16));
+		bounds.Grow(shfl_down_sync(mask, bounds, 8));
+		bounds.Grow(shfl_down_sync(mask, bounds, 4));
+		bounds.Grow(shfl_down_sync(mask, bounds, 2));
+		bounds.Grow(shfl_down_sync(mask, bounds, 1));
 		return bounds;
 	}
 }

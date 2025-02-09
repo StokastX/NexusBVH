@@ -10,7 +10,7 @@ namespace NXB
 			radixSortTime += other.radixSortTime;
 			bvhBuildTime += other.bvhBuildTime;
 			totalTime += other.totalTime;
-			cost += other.cost;
+			bvhCost += other.bvhCost;
 			return *this;
 		}
 
@@ -21,7 +21,7 @@ namespace NXB
 			result.radixSortTime = radixSortTime / divisor;
 			result.bvhBuildTime = bvhBuildTime / divisor;
 			result.totalTime = totalTime / divisor;
-			result.cost = cost / divisor;
+			result.bvhCost = bvhCost / divisor;
 			return result;
 		}
 
@@ -31,7 +31,7 @@ namespace NXB
 		float bvhBuildTime = 0.0f;
 		float totalTime = 0.0f;
 
-		float cost = 0.0f;
+		float bvhCost = 0.0f;
 	};
 
 	/*
@@ -73,6 +73,7 @@ namespace NXB
 		std::cout << "Radix sort: " << aggregatedMetrics.radixSortTime << " ms" << std::endl;
 		std::cout << "Bvh build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
 		std::cout << "Total BVH build time: " << aggregatedMetrics.totalTime << " ms" << std::endl;
+		std::cout << std::endl << "BVH cost: " << aggregatedMetrics.bvhCost << std::endl;
 
 		std::cout << std::endl << "========== BENCHMARKING DONE ==========" << std::endl << std::endl;
 

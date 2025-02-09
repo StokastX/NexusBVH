@@ -13,32 +13,38 @@ namespace NXB
 	__global__ void ComputeSceneBounds(BuildState buildState, PrimT* primitives)
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
+		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
 
-		// Make sure to initialize scene bounds
-		if (primIdx == 0)
-			buildState.sceneBounds->Clear();
-
-		__syncthreads();
-
-		if (primIdx >= buildState.primCount)
-			return;
+		uint32_t mask = __ballot_sync(FULL_MASK, primIdx < buildState.primCount);
 
 		// Shared bounds to parallelize atomic operations across thread blocks before updating the global scene bounds
 		__shared__ AABB sharedBounds;
+		AABB bounds;
+		bounds.Clear();
 
 		// Clear shared AABB
 		if (threadIdx.x == 0)
 			sharedBounds.Clear();
 
+		if (primIdx < buildState.primCount)
+		{
+			bounds = GetBounds(primitives[primIdx]);
+
+			BVH2::Node node;
+			node.bounds = bounds;
+			node.leftChild = INVALID_IDX;
+			node.rightChild = primIdx;
+			buildState.nodes[primIdx] = node;
+		}
+
+		// Perform warp-level grow
+		bounds = WarpReduce(FULL_MASK, bounds);
+
 		__syncthreads();
 
-		BVH2::Node node;
-		node.bounds = GetBounds(primitives[primIdx]);
-		node.leftChild = INVALID_IDX;
-		node.rightChild = primIdx;
-		buildState.nodes[primIdx] = node;
-
-		AtomicGrow(&sharedBounds, node.bounds);
+		// Perform block-level grow
+		if (laneId == 0)
+			AtomicGrow(&sharedBounds, bounds);
 
 		__syncthreads();
 

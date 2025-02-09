@@ -6,9 +6,7 @@
 
 #include "NXB/AABB.h"
 
-#define WARP_SIZE 32
 #define SEARCH_RADIUS 8
-#define FULL_MASK 0xffffffff
 
 namespace NXB
 {
@@ -30,17 +28,10 @@ namespace NXB
 
 	// From Ciprian Apetrei: "Fast and Simple Agglomerative LBVH Construction"
 	// See https://doi.org/10.2312/cgvc.20141206
-	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, uint64_t* mortonCodes)
+	template <typename McT>
+	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, McT* mortonCodes)
 	{
-		// TODO: test "primCount - 1" differing from paper here
-		if (left == 0 || (right != primCount - 1 && Delta(right, right + 1, mortonCodes) < Delta(left - 1, left, mortonCodes)))
-			return right;
-		else
-			return left - 1;
-	}
-
-	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, uint32_t* mortonCodes)
-	{
+		// "primCount - 1" differing from paper here
 		if (left == 0 || (right != primCount - 1 && Delta(right, right + 1, mortonCodes) < Delta(left - 1, left, mortonCodes)))
 			return right;
 		else
@@ -148,7 +139,6 @@ namespace NXB
 			{
 				neighborBounds.Grow(clusterBounds);
 
-				// Encode area + neighbor index in a 64-bit variable
 				area = __float_as_uint(neighborBounds.Area());
 
 				// Update min_distance[i, i + r]
@@ -183,7 +173,7 @@ namespace NXB
 
 		uint32_t clusterIdx = INVALID_IDX;
 
-		// Load left and right child's cluster indices into shared memory
+		// Load left and right child's cluster indices
 		uint32_t numLeft = LoadIndices(lStart, lEnd, clusterIdx, buildState, 0);
 		uint32_t numRight = LoadIndices(rStart, rEnd, clusterIdx, buildState, numLeft);
 		uint32_t numPrim = numLeft + numRight;
