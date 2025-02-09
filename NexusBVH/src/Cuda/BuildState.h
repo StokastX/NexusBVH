@@ -8,12 +8,6 @@ namespace NXB
 {
 	struct BuildState
 	{
-		// List of Morton 64-bit codes
-		uint64_t* mortonCodes64 = nullptr;
-
-		// List of Morton 64-bit codes
-		uint32_t* mortonCodes32 = nullptr;
-
 		// Scene bounds
 		AABB* sceneBounds;
 

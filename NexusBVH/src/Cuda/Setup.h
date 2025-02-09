@@ -9,36 +9,26 @@
 
 namespace NXB
 {
-	/* \brief Computes the bounds of the scene
-	 * 
-	 * \param primitives The list of bounding boxes
-	 */
-	__global__ void ComputeSceneBounds(BuildState buildstate, AABB* primitives);
-
-	/* \brief Computes the bounds of both the triangles and the scene
+	/* \brief Computes the bounds of both the primitives and the scene
 	 * 
 	 * \param primitives The list of triangles
 	 */
-	__global__ void ComputeSceneBounds(BuildState buildState, Triangle* primitives);
+	template <typename PrimT>
+	__global__ void ComputeSceneBounds(BuildState buildState, PrimT* primitives);
 
 	/*
 	 * \brief Compute a list of Morton codes from the centroid of the nodes' AABBs contained in buildState
 	 */
-	__global__ void ComputeMortonCodes(BuildState buildState);
+	template <typename McT>
+	__global__ void ComputeMortonCodes(BuildState buildState, McT* mortonCodes);
 
 	/*
 	 * \brief Performs one sweep radix sort for 32-bit Morton codes
 	 */
-	void RadixSort32(BuildState& buildState, BVHBuildMetrics* buildMetrics);
+	void RadixSort(BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 
 	/*
 	 * \brief Performs one sweep radix sort for 64-bit Morton codes
 	 */
-	void RadixSort64(BuildState& buildState, BVHBuildMetrics* buildMetrics);
-
-
-	/*
-	 * \brief Initialize the data (leaf nodes, clusters) required for HPLOC kernel
-	 */
-	__global__ void InitClusters(BuildState buildState);
+	void RadixSort(BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 }

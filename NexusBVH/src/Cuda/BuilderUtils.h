@@ -5,6 +5,7 @@
 #include <device_launch_parameters.h>
 #include "NXB/Math/CudaMath.h"
 #include "NXB/AABB.h"
+#include "NXB/Triangle.h"
 
 namespace NXB
 {
@@ -201,11 +202,14 @@ namespace NXB
 		return InterleaveBits64(x) | InterleaveBits64(y) << 1 | InterleaveBits64(z) << 2;
 	}
 
+	template <typename McT>
+	__device__ __forceinline__ McT MortonCode(const float3& centroid);
 
 	/* \brief Compute a 32-bit Morton code for the given 3D point
 	 * \param centroid The centroid position, normalized in [0, 1]
 	 */
-	__device__ __forceinline__ uint32_t MortonCode32(const float3& centroid)
+	template <>
+	__device__ __forceinline__ uint32_t MortonCode<uint32_t>(const float3& centroid)
 	{
 		uint32_t x = centroid.x * 0x3ff;
 		uint32_t y = centroid.y * 0x3ff;
@@ -216,11 +220,22 @@ namespace NXB
 	/* \brief Compute a 64-bit Morton code for the given 3D point
 	 * \param centroid The centroid position, normalized in [0, 1]
 	 */
-	__device__ __forceinline__ uint64_t MortonCode64(const float3& centroid)
+	template <>
+	__device__ __forceinline__ uint64_t MortonCode<uint64_t>(const float3& centroid)
 	{
 		uint32_t x = centroid.x * 0x1fffff;
 		uint32_t y = centroid.y * 0x1fffff;
 		uint32_t z = centroid.z * 0x1fffff;
 		return MortonCode64(x, y, z);
+	}
+
+	__device__ __forceinline__ AABB GetBounds(Triangle triangle)
+	{
+		return triangle.Bounds();
+	}
+
+	__device__ __forceinline__ AABB GetBounds(AABB bounds)
+	{
+		return bounds;
 	}
 }

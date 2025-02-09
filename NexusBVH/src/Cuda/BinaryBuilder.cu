@@ -205,7 +205,8 @@ namespace NXB
 	}
 
 
-	__global__ void BuildBinaryBVH(BuildState buildState)
+	template <typename McT>
+	__global__ void BuildBinaryBVH(BuildState buildState, McT* mortonCodes)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -217,7 +218,6 @@ namespace NXB
 		uint32_t split = 0;
 
 		bool laneActive = idx < buildState.primCount;
-		bool mortonCodes32 = buildState.mortonCodes64 == nullptr;
 
 		// Do bottom-up traversal as long as active lanes in warp
 		while (__ballot_sync(FULL_MASK, laneActive))
@@ -227,12 +227,7 @@ namespace NXB
 				int32_t previousId;
 				uint32_t parentId;
 
-				if (mortonCodes32)
-					parentId = FindParentId(left, right, buildState.primCount, buildState.mortonCodes32);
-				else
-					parentId = FindParentId(left, right, buildState.primCount, buildState.mortonCodes64);
-
-				if (parentId == right)
+				if (FindParentId(left, right, buildState.primCount, mortonCodes) == right)
 				{
 					// Parent is at the right boundary, current LBVH node is its left child
 					previousId = atomicExch(&buildState.parentIdx[right], left);
@@ -285,4 +280,7 @@ namespace NXB
 			}
 		}
 	}
+
+	template __global__ void BuildBinaryBVH<uint32_t>(BuildState buildState, uint32_t* mortonCodes);
+	template __global__ void BuildBinaryBVH<uint64_t>(BuildState buildState, uint64_t* mortonCodes);
 }

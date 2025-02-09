@@ -8,18 +8,19 @@
 
 namespace NXB
 {
+	template <typename McT = uint64_t>
 	BVH2* BuildBinary(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
+		McT* mortonCodes = CudaMemory::AllocAsync<McT>(buildState.primCount);
 
 		// Init parent ids to -1
 		CudaMemory::MemsetAsync(buildState.parentIdx, INVALID_IDX, sizeof(int32_t) * buildState.primCount);
-
 		CudaMemory::CopyAsync(buildState.clusterCount, &buildState.primCount, 1, cudaMemcpyHostToDevice);
 
-		void* args[1] = { &buildState };
+		void* args[2] = { &buildState, &mortonCodes };
 
 		const uint32_t blockSize = 64;
 		const uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
@@ -28,19 +29,13 @@ namespace NXB
 		CUDA_CHECK(cudaEventCreate(&start));
 		CUDA_CHECK(cudaEventCreate(&stop));
 
-		if (buildConfig.prioritizeSpeed)
-			buildState.mortonCodes32 = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
-		else
-			buildState.mortonCodes64 = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
-
-
 		// Step 2: Compute morton codes
 		// ===============================================================================
 		if (buildMetrics)
 		{
 			CUDA_CHECK(cudaEventRecord(start));
 
-			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes<McT>, gridSize, blockSize, args, 0, 0));
 
 			CUDA_CHECK(cudaEventRecord(stop));
 			CUDA_CHECK(cudaEventSynchronize(stop));
@@ -48,17 +43,14 @@ namespace NXB
 		}
 		else
 		{
-			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(ComputeMortonCodes<McT>, gridSize, blockSize, args, 0, 0));
 		}
 		// ===============================================================================
 
 
 		// Step 3: Sort morton codes
 		// ===============================================================================
-		if (buildConfig.prioritizeSpeed)
-			RadixSort32(buildState, buildMetrics);
-		else
-			RadixSort64(buildState, buildMetrics);
+		RadixSort(buildState, mortonCodes, buildMetrics);
 		// ===============================================================================
 
 
@@ -69,7 +61,7 @@ namespace NXB
 			CUDA_CHECK(cudaDeviceSynchronize());
 			CUDA_CHECK(cudaEventRecord(start));
 
-			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH<McT>, gridSize, blockSize, args, 0, 0));
 
 			CUDA_CHECK(cudaEventRecord(stop));
 			CUDA_CHECK(cudaEventSynchronize(stop));
@@ -80,7 +72,7 @@ namespace NXB
 		}
 		else
 		{
-			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(BuildBinaryBVH<McT>, gridSize, blockSize, args, 0, 0));
 		}
 		// ===============================================================================
 
@@ -101,8 +93,7 @@ namespace NXB
 		CudaMemory::FreeAsync(buildState.parentIdx);
 		CudaMemory::FreeAsync(buildState.clusterIdx);
 		CudaMemory::FreeAsync(buildState.clusterCount);
-		CudaMemory::FreeAsync(buildState.mortonCodes32);
-		CudaMemory::FreeAsync(buildState.mortonCodes64);
+		CudaMemory::FreeAsync(mortonCodes);
 
 		return deviceBvh;
 	}
@@ -111,18 +102,17 @@ namespace NXB
 	template<typename PrimT>
 	BVH2* BuildBinaryImpl(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
+		BVH2* bvh;
 		uint32_t nodeCount = primCount * 2 - 1;
 		BuildState buildState;
 		buildState.primCount = primCount;
 		buildState.sceneBounds = CudaMemory::AllocAsync<AABB>(1);
 		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(nodeCount);
 
-		const uint32_t blockSize = 64;
+		const uint32_t blockSize = 32;
 		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);
 
 		void* args[2] = { &buildState, &primitives };
-
-		auto sceneBoundsKernel = static_cast<void (*)(BuildState, PrimT*)>(&ComputeSceneBounds);
 
 		// Step 1: Compute scene bounding box
 		// ===============================================================================
@@ -133,7 +123,7 @@ namespace NXB
 			CUDA_CHECK(cudaEventCreate(&stop));
 			CUDA_CHECK(cudaEventRecord(start));
 
-			CUDA_CHECK(cudaLaunchKernel(sceneBoundsKernel, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds<PrimT>, gridSize, blockSize, args, 0, 0));
 
 			CUDA_CHECK(cudaEventRecord(stop));
 			CUDA_CHECK(cudaEventSynchronize(stop));
@@ -143,14 +133,17 @@ namespace NXB
 		}
 		else
 		{
-			CUDA_CHECK(cudaLaunchKernel(sceneBoundsKernel, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(ComputeSceneBounds<PrimT>, gridSize, blockSize, args, 0, 0));
 		}
 		// ===============================================================================
 
 
 		// Step 2 - 4: Build BVH
 		// ==============================================================================
-		BVH2* bvh = BuildBinary(buildState, buildConfig, buildMetrics);
+		if (buildConfig.prioritizeSpeed)
+			bvh = BuildBinary<uint32_t>(buildState, buildConfig, buildMetrics);
+		else
+			bvh = BuildBinary<uint64_t>(buildState, buildConfig, buildMetrics);
 		// ==============================================================================
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);

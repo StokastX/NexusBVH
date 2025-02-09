@@ -7,5 +7,6 @@ namespace NXB
 	/*
 	 * \brief HPLOC based binary BVH building
 	 */
-	__global__ void BuildBinaryBVH(BuildState buildState);
+	template <typename McT>
+	__global__ void BuildBinaryBVH(BuildState buildState, McT* mortonCodes);
 }
