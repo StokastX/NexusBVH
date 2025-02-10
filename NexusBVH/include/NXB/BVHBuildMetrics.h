@@ -54,13 +54,13 @@ namespace NXB
 		for (uint32_t i = 0; i < warmupIterations; ++i) {
 			BVHBuildMetrics dummy;
 			auto bvh = std::forward<Func>(func)(std::forward<Args>(args)..., &dummy);
-			FreeBVH(bvh);
+			FreeDeviceBVH(bvh);
 		}
 
 		for (uint32_t i = 0; i < measuredIterations; ++i) {
 			BVHBuildMetrics iterationMetrics = {};
 			auto bvh = std::forward<Func>(func)(std::forward<Args>(args)..., &iterationMetrics);
-			FreeBVH(bvh);
+			FreeDeviceBVH(bvh);
 			aggregatedMetrics += iterationMetrics;
 			std::cout << "Iteration " << i << ", total time: " << iterationMetrics.totalTime << " ms" << std::endl;
 		}

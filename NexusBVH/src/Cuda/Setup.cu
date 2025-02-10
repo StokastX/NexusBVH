@@ -14,21 +14,18 @@ namespace NXB
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 
-		uint32_t mask = __ballot_sync(FULL_MASK, primIdx < buildState.primCount);
-
-		// Shared bounds to parallelize atomic operations across thread blocks before updating the global scene bounds
+		BVH2::Node node;
 		AABB bounds;
 		bounds.Clear();
 
-		if (primIdx < buildState.primCount)
+		for (uint32_t i = primIdx; i < buildState.primCount; i += blockDim.x * gridDim.x)
 		{
-			bounds = GetBounds(primitives[primIdx]);
-
-			BVH2::Node node;
-			node.bounds = bounds;
+			node.bounds = GetBounds(primitives[i]);
 			node.leftChild = INVALID_IDX;
-			node.rightChild = primIdx;
-			buildState.nodes[primIdx] = node;
+			node.rightChild = i;
+			buildState.nodes[i] = node;
+
+			bounds.Grow(node.bounds);
 		}
 
 		// Perform block-level grow

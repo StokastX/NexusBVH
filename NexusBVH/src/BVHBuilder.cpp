@@ -124,8 +124,12 @@ namespace NXB
 		sceneBounds.Clear();
 		CudaMemory::CopyAsync(buildState.sceneBounds, &sceneBounds, 1, cudaMemcpyHostToDevice);
 
-		const uint32_t blockSize = 64;
-		const uint32_t gridSize = DivideRoundUp(primCount, blockSize);
+		//int32_t blockSize = 64;
+		//int32_t gridSize = DivideRoundUp(primCount, blockSize);
+		//int32_t gridSize = min((buildState.primCount + blockSize - 1) / blockSize, 1024);
+		int32_t blockSize, gridSize;
+		CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(&gridSize, &blockSize, ComputeSceneBounds<PrimT>));
+
 
 		void* args[2] = { &buildState, &primitives };
 
