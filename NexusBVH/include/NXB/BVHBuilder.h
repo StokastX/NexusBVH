@@ -8,21 +8,15 @@ namespace NXB
 {
 	/* \brief Builds a binary BVH from a list of primitives
 	 *
-	 * \param primitives The primitives the BVH will be built from
+	 * \param primitives The primitives the BVH will be built from (one of AABB or Triangle)
 	 * \param primCount The number of primitives
+	 * \param buildConfig The build configuration
+	 * \param buildMetrics The build metrics. If different from nullptr, kernel execution time will be measured which results in a slower build
 	 *
 	 * \returns A pointer to the device instance of the newly created binary BVH
 	 */
-	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
-
-	/* \brief Builds a binary BVH from a list of primitives
-	 *
-	 * \param primitives The primitives the BVH will be built from
-	 * \param primCount The number of primitives
-	 *
-	 * \returns A pointer to the device instance of the newly created binary BVH
-	 */
-	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
+	template <typename PrimT>
+	BVH2* BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
 
 	/* \brief Converts a binary BVH into a compressed wide BVH
 	 *

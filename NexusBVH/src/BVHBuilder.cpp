@@ -10,7 +10,7 @@
 namespace NXB
 {
 	template <typename McT = uint64_t>
-	BVH2* BuildBinary(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinaryImpl(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = buildState.primCount * 2 - 1;
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
@@ -115,7 +115,7 @@ namespace NXB
 
 
 	template<typename PrimT>
-	BVH2* BuildBinaryImpl(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2* BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		BVH2* bvh;
 		uint32_t nodeCount = primCount * 2 - 1;
@@ -161,9 +161,9 @@ namespace NXB
 		// Step 2 - 4: Build BVH
 		// ==============================================================================
 		if (buildConfig.prioritizeSpeed)
-			bvh = BuildBinary<uint32_t>(buildState, buildConfig, buildMetrics);
+			bvh = BuildBinaryImpl<uint32_t>(buildState, buildConfig, buildMetrics);
 		else
-			bvh = BuildBinary<uint64_t>(buildState, buildConfig, buildMetrics);
+			bvh = BuildBinaryImpl<uint64_t>(buildState, buildConfig, buildMetrics);
 		// ==============================================================================
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);
@@ -171,16 +171,6 @@ namespace NXB
 		CUDA_CHECK(cudaDeviceSynchronize());
 
 		return bvh;
-	}
-
-	BVH2* BuildBinary(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
-	{
-		return BuildBinaryImpl<AABB>(primitives, primCount, buildConfig, buildMetrics);
-	}
-
-	BVH2* BuildBinary(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
-	{
-		return BuildBinaryImpl<Triangle>(primitives, primCount, buildConfig, buildMetrics);
 	}
 
 	BVH8* ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)
@@ -200,4 +190,7 @@ namespace NXB
 	{
 
 	}
+
+	template BVH2* BuildBinary<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH2* BuildBinary<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
 }

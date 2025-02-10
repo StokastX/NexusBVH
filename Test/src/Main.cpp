@@ -4,16 +4,15 @@
 #include <vector>
 #include <random>
 
-#define TRIANGLE_COUNT 10000000
+#define TRIANGLE_COUNT 10'000'000
 #define GRID_SIZE 100
 
 int main(void)
 {
-	std::vector<NXB::Triangle> triangles;
+	std::vector<NXB::Triangle> triangles(TRIANGLE_COUNT);
 
 	// For a completely random triangle generation
-	//std::random_device rd;
-    //std::mt19937 gen(rd());
+    //std::mt19937 gen(12345);
 	//std::uniform_real_distribution<float> posDist(-10.0f, 10.0f);
     //std::uniform_real_distribution<float> sizeDist(0.1f, 1.0f);
 
@@ -25,13 +24,12 @@ int main(void)
 	//	float3 v1 = { center.x + size * (posDist(gen) - 0.5f), center.y + size * (posDist(gen) - 0.5f), center.z + size * (posDist(gen) - 0.5f) };
 	//	float3 v2 = { center.x + size * (posDist(gen) - 0.5f), center.y + size * (posDist(gen) - 0.5f), center.z + size * (posDist(gen) - 0.5f) };
 
-	//	triangles.push_back({ v0, v1, v2 });
+    //  triangles[i] = {v0, v1, v2};
 	//}
 
 	// For a slightly less random triangle generation
 	const float cellSize = 10.0f / GRID_SIZE;
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(12345);
     std::uniform_int_distribution<size_t> cellDist(0, GRID_SIZE - 1);
     std::uniform_real_distribution<float> offsetDist(0.1f * cellSize, 0.9f * cellSize);
 
@@ -48,20 +46,16 @@ int main(void)
         float3 v1 = {baseX + offsetDist(gen), baseY + offsetDist(gen), baseZ + offsetDist(gen)};
         float3 v2 = {baseX + offsetDist(gen), baseY + offsetDist(gen), baseZ + offsetDist(gen)};
 
-        triangles.push_back({v0, v1, v2});
+        triangles[i] = {v0, v1, v2};
     }
-
-	NXB::BVHBuilder bvhBuilder;
 
 	NXB::Triangle* dTriangles = CudaMemory::Allocate<NXB::Triangle>(TRIANGLE_COUNT);
 	CudaMemory::Copy<NXB::Triangle>(dTriangles, triangles.data(), TRIANGLE_COUNT, cudaMemcpyHostToDevice);
 
-	NXB::BVHBuildMetrics buildMetrics = NXB::BenchmarkBuild(
-    [&bvhBuilder](NXB::Triangle* triangles, uint32_t count, NXB::BVHBuildMetrics* metrics) {
-        return bvhBuilder.BuildBinary(triangles, count, metrics);
-    },
-    1, 2,
-    (NXB::Triangle*)dTriangles, TRIANGLE_COUNT);
+	NXB::BuildConfig buildConfig;
+	buildConfig.prioritizeSpeed = true;
+
+	NXB::BenchmarkBuild(NXB::BuildBinary<NXB::Triangle>, 10, 100, dTriangles, TRIANGLE_COUNT, buildConfig);
 
 	CudaMemory::Free(dTriangles);
 
