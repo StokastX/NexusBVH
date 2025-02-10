@@ -25,7 +25,7 @@ namespace NXB
 		void* args[2] = { &buildState, &mortonCodes };
 
 		uint32_t blockSize = 64;
-		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
+		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy(ComputeMortonCodes<McT>, blockSize);
 
 		cudaEvent_t start, stop;
 		CUDA_CHECK(cudaEventCreate(&start));
@@ -55,6 +55,7 @@ namespace NXB
 		RadixSort(buildState, mortonCodes, buildMetrics);
 		// ===============================================================================
 
+		gridSize = DivideRoundUp(buildState.primCount, blockSize);
 
 		// Step 3: HPLOC binary BVH building
 		// ===============================================================================
@@ -124,14 +125,8 @@ namespace NXB
 		sceneBounds.Clear();
 		CudaMemory::CopyAsync(buildState.sceneBounds, &sceneBounds, 1, cudaMemcpyHostToDevice);
 
-		
-		uint32_t blockSize = 256;
-		int32_t blocksPerSM;
-		cudaDeviceProp properties;
-
-		cudaGetDeviceProperties(&properties, 0);
-		CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocksPerSM, ComputeSceneBounds<PrimT>, blockSize, 0));
-		uint32_t gridSize = blocksPerSM * properties.multiProcessorCount;
+		uint32_t blockSize = 64;
+		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy(ComputeSceneBounds<PrimT>, blockSize);
 
 		void* args[2] = { &buildState, &primitives };
 
