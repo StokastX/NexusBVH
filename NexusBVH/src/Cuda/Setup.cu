@@ -13,6 +13,7 @@ namespace NXB
 	__global__ void ComputeSceneBounds(BuildState buildState, PrimT* primitives)
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
+		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
 
 		BVH2::Node node;
 		AABB bounds;
@@ -29,10 +30,10 @@ namespace NXB
 		}
 
 		// Perform block-level grow
-		bounds = BlockReduceGrow(bounds);
+		bounds = WarpReduceGrow(FULL_MASK, bounds);
 
 		// Scene bounds update
-		if (threadIdx.x == 0)
+		if (laneId == 0)
 			AtomicGrow(buildState.sceneBounds, bounds);
 	}
 
