@@ -5,18 +5,18 @@ It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/36
 
 ## BVH Construction Benchmark
 
-All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 9 8945HS, RTX 4070 Laptop (90W, 8GB VRAM).** 
+All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 7 5700X, RTX 3070 8 Go.** 
 
-BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **4× slower**.
+BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **3x slower**.
 
 | Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort           | BVH2  | Total  |
 |------------------------|--------------|--------------|----------------------|------|--------|
-| **Sponza (0.3M)**      | 0.11         | 0.01         | 0.15                 | 0.37 | 0.64   |
-| **Buddha (1.1M)**      | 0.37         | 0.20         | 0.28                 | 1.02 | 1.88   |
-| **Hairball (2.9M)**    | 1.21         | 0.49         | 0.83                 | 2.03 | 4.56   |
-| **Bistro (3.8M)**      | 0.99         | 0.48         | 0.81                 | 2.33 | 4.61   |
-| **Powerplant (12.7M)** | 3.64         | 2.04         | 5.34                 | 8.59 | 19.60  |
-
+| **Sponza (0.3M)**      | 0.06         | 0.04         | 0.22                 | 0.37 | 0.68   |
+| **Buddha (1.1M)**      | 0.22         | 0.14         | 0.37                 | 1.05 | 1.78   |
+| **Hairball (2.9M)**    | 0.55         | 0.31         | 0.89                 | 2.01 | 3.86   |
+| **Bistro (3.8M)**      | 0.59         | 0.31         | 1.02                 | 2.66 | 4.58   |
+| **Powerplant (12.7M)** | 2.52         | 1.31         | 3.59                 | 8.85 | 16.27  |
+| **Lucy (28.1M)**       | 5.78         | 3.07         | 7.98                 | 22.2 | 39.03  |
 
 ## Prerequisites
 
