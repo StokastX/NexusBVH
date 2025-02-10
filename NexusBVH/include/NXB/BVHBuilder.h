@@ -16,7 +16,7 @@ namespace NXB
 	 * \returns A pointer to the device instance of the newly created binary BVH
 	 */
 	template <typename PrimT>
-	BVH2* BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
+	BVH2 BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
 
 	/* \brief Converts a binary BVH into a compressed wide BVH
 	 *
@@ -24,17 +24,30 @@ namespace NXB
 	 *
 	 * \returns A pointer to the device instance of the newly created compressed wide BVH
 	 */
+	BVH8 ConvertToWideBVH(BVH2* binaryBvh, BVHBuildMetrics* buildMetrics = nullptr);
 
-	BVH8* ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics = nullptr);
+
+	/* \brief Transfer BVH to CPU
+	 *
+	 * \param binaryBVH The binary BVH to be transferred
+	 *
+	 * \returns A CPU BVH instance
+	 */
+	BVH2 ToHost(BVH2 deviceBvh);
 
 	/*
-	 * \brief Free the device instance of the binary BVH
+	 * \brief Free the host instance of the binary BVH
 	 */
-	void FreeBVH(BVH2* bvh2);
+	void FreeHostBVH(BVH2 hostBvh);
+
+	/*
+	 * \brief Free the host instance of the binary BVH
+	 */
+	void FreeDeviceBVH(BVH2 deviceBvh);
 
 	/*
 	 * \brief Free the device instance of the wide BVH
 	 */
-	void FreeBVH(BVH8* wideBVH);
+	void FreeBVH(BVH8* wideBvh);
 
 }

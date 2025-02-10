@@ -262,8 +262,8 @@ namespace NXB
 		return bounds;
 	}
 
-	// Warp-level reduction
-	__device__ __forceinline__ float WarpReduce(uint32_t mask, float x)
+	// Warp-level sum reduction
+	__device__ __forceinline__ float WarpReduceSum(uint32_t mask, float x)
 	{
 		x += __shfl_down_sync(mask, x, 16);
 		x += __shfl_down_sync(mask, x, 8);
@@ -274,13 +274,61 @@ namespace NXB
 	}
 
 	// Warp-level AABB reduction
-	__device__ __forceinline__ AABB WarpReduce(uint32_t mask, AABB bounds)
+	__device__ __forceinline__ AABB WarpReduceGrow(uint32_t mask, AABB bounds)
 	{
 		bounds.Grow(shfl_down_sync(mask, bounds, 16));
 		bounds.Grow(shfl_down_sync(mask, bounds, 8));
 		bounds.Grow(shfl_down_sync(mask, bounds, 4));
 		bounds.Grow(shfl_down_sync(mask, bounds, 2));
 		bounds.Grow(shfl_down_sync(mask, bounds, 1));
+		return bounds;
+	}
+
+	// Block-level sum reduction
+	__device__ __forceinline__ float BlockReduceSum(float x)
+	{
+		static __shared__ float shared[32];
+		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
+		uint32_t warpId = threadIdx.x / WARP_SIZE;
+
+		x = WarpReduceSum(FULL_MASK, x);
+
+		if (laneId == 0)
+			shared[warpId] = x;
+
+		__syncthreads();
+
+		x = (threadIdx.x < blockDim.x / WARP_SIZE) ? shared[laneId] : 0;
+
+		if (warpId == 0)
+			x = WarpReduceSum(FULL_MASK, x);
+
+		return x;
+	}
+
+
+	// Block-level AABB reduction
+	__device__ __forceinline__ AABB BlockReduceGrow(AABB bounds)
+	{
+		static __shared__ AABB shared[32];
+		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
+		uint32_t warpId = threadIdx.x / WARP_SIZE;
+
+		bounds = WarpReduceGrow(FULL_MASK, bounds);
+
+		if (laneId == 0)
+			shared[warpId] = bounds;
+
+		__syncthreads();
+
+		if (threadIdx.x < blockDim.x / WARP_SIZE)
+			bounds = shared[laneId];
+		else
+			bounds.Clear();
+
+		if (warpId == 0)
+			bounds = WarpReduceGrow(FULL_MASK, bounds);
+
 		return bounds;
 	}
 }

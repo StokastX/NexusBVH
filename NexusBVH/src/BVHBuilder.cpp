@@ -10,7 +10,7 @@
 namespace NXB
 {
 	template <typename McT = uint64_t>
-	BVH2* BuildBinaryImpl(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2 BuildBinaryImpl(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = buildState.primCount * 2 - 1;
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
@@ -82,17 +82,17 @@ namespace NXB
 		CUDA_CHECK(cudaEventDestroy(stop));
 
 		// Create and return the binary BVH
-		BVH2 hostBvh;
-		hostBvh.primCount = buildState.primCount;
-		hostBvh.nodeCount = nodeCount;
-		hostBvh.nodes = buildState.nodes;
-		CudaMemory::CopyAsync<AABB>(&hostBvh.bounds, buildState.sceneBounds, 1, cudaMemcpyDeviceToHost);
+		BVH2 bvh;
+		bvh.primCount = buildState.primCount;
+		bvh.nodeCount = nodeCount;
+		bvh.nodes = buildState.nodes;
+		CudaMemory::CopyAsync<AABB>(&bvh.bounds, buildState.sceneBounds, 1, cudaMemcpyDeviceToHost);
 
 		if (buildMetrics)
 		{
 			float* cost = CudaMemory::AllocAsync<float>(1);
 			CudaMemory::MemsetAsync(cost, 0, 1);
-			void* args[2] = { &hostBvh, &cost };
+			void* args[2] = { &bvh, &cost };
 			uint32_t gridSize = DivideRoundUp(nodeCount, blockSize);
 
 			CUDA_CHECK(cudaLaunchKernel(ComputeBVHCost, gridSize, blockSize, args, 0, 0));
@@ -100,24 +100,19 @@ namespace NXB
 			CudaMemory::CopyAsync(&buildMetrics->bvhCost, cost, 1, cudaMemcpyDeviceToHost);
 		}
 
-
-		// Copy to device
-		BVH2* deviceBvh = CudaMemory::AllocAsync<BVH2>(1);
-		CudaMemory::CopyAsync<BVH2>(deviceBvh, &hostBvh, 1, cudaMemcpyHostToDevice);
-
 		CudaMemory::FreeAsync(buildState.parentIdx);
 		CudaMemory::FreeAsync(buildState.clusterIdx);
 		CudaMemory::FreeAsync(buildState.clusterCount);
 		CudaMemory::FreeAsync(mortonCodes);
 
-		return deviceBvh;
+		return bvh;
 	}
 
 
 	template<typename PrimT>
-	BVH2* BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2 BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
-		BVH2* bvh;
+		BVH2 bvh;
 		uint32_t nodeCount = primCount * 2 - 1;
 		BuildState buildState;
 		buildState.primCount = primCount;
@@ -173,17 +168,30 @@ namespace NXB
 		return bvh;
 	}
 
-	BVH8* ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)
+	BVH8 ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)
 	{
-		return nullptr;
+		return BVH8();
 	}
 
-	void FreeBVH(BVH2* bvh2)
+	BVH2 ToHost(BVH2 deviceBvh)
 	{
-		BVH2 hostBvh;
-		CudaMemory::Copy<BVH2>(&hostBvh, bvh2, 1, cudaMemcpyDeviceToHost);
-		CudaMemory::Free(hostBvh.nodes);
-		CudaMemory::Free(bvh2);
+		BVH2 hostBVH;
+		hostBVH.primCount = deviceBvh.primCount;
+		hostBVH.nodeCount = deviceBvh.nodeCount;
+		hostBVH.bounds = deviceBvh.bounds;
+		hostBVH.nodes = new BVH2::Node[deviceBvh.nodeCount];
+		CudaMemory::Copy(hostBVH.nodes, deviceBvh.nodes, deviceBvh.nodeCount, cudaMemcpyDeviceToHost);
+		return hostBVH;
+	}
+
+	void FreeHostBVH(BVH2 hostBvh)
+	{
+		delete[] hostBvh.nodes;
+	}
+
+	void FreeDeviceBVH(BVH2 deviceBvh)
+	{
+		CudaMemory::Free(deviceBvh.nodes);
 	}
 
 	void FreeBVH(BVH8* wideBVH)
@@ -191,6 +199,6 @@ namespace NXB
 
 	}
 
-	template BVH2* BuildBinary<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
-	template BVH2* BuildBinary<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH2 BuildBinary<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH2 BuildBinary<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
 }

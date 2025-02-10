@@ -16,11 +16,7 @@ namespace NXB
 
 		float sceneBoundsArea = bvh.bounds.Area();
 
-		__shared__ float sharedCost;
 		float area = 0.0f;
-
-		if (threadIdx.x == 0)
-			sharedCost = 0.0f;
 
 		if (nodeIdx < bvh.nodeCount)
 		{
@@ -31,17 +27,9 @@ namespace NXB
 			else
 				area = C_I * m;
 		}
-
-		area = WarpReduce(FULL_MASK, area);
-
-		__syncthreads();
-
-		if (laneId == 0)
-			atomicAdd(&sharedCost, area);
-
-		__syncthreads();
+		area = BlockReduceSum(area);
 
 		if (threadIdx.x == 0)
-			atomicAdd(cost, sharedCost);
+			atomicAdd(cost, area);
 	}
 }
