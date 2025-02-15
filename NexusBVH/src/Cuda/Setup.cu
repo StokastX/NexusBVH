@@ -14,12 +14,13 @@ namespace NXB
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
+		uint32_t threadCount = blockDim.x * gridDim.x;
 
 		BVH2::Node node;
 		AABB bounds;
 		bounds.Clear();
 
-		for (uint32_t i = primIdx; i < buildState.primCount; i += blockDim.x * gridDim.x)
+		for (uint32_t i = primIdx; i < buildState.primCount; i += threadCount)
 		{
 			node.bounds = GetBounds(primitives[i]);
 			node.leftChild = INVALID_IDX;
@@ -29,7 +30,7 @@ namespace NXB
 			bounds.Grow(node.bounds);
 		}
 
-		// Perform block-level grow
+		// Perform warp-level grow
 		bounds = WarpReduceGrow(FULL_MASK, bounds);
 
 		// Scene bounds update
@@ -42,19 +43,19 @@ namespace NXB
 	__global__ void ComputeMortonCodes(BuildState buildState, McT* mortonCodes)
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
+		uint32_t threadCount = blockDim.x * gridDim.x;
 
-		if (primIdx >= buildState.primCount)
-			return;
+		for (uint32_t i = primIdx; i < buildState.primCount; i += threadCount)
+		{
+			AABB primBounds = buildState.nodes[i].bounds;
+			AABB* sceneBounds = buildState.sceneBounds;
+			float3 centroid = primBounds.Centroid();
 
-		AABB primBounds = buildState.nodes[primIdx].bounds;
-		AABB* sceneBounds = buildState.sceneBounds;
-		float3 centroid = primBounds.Centroid();
+			mortonCodes[i] = MortonCode<McT>((centroid - sceneBounds->bMin) / (sceneBounds->bMax - sceneBounds->bMin));
 
-		McT mortonCode = MortonCode<McT>((centroid - sceneBounds->bMin) / (sceneBounds->bMax - sceneBounds->bMin));
-		mortonCodes[primIdx] = mortonCode;
-
-		// Initialize cluster indices as well
-		buildState.clusterIdx[primIdx] = primIdx;
+			// Initialize cluster indices as well
+			buildState.clusterIdx[i] = i;
+		}
 	}
 
 	void RadixSort(BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics)

@@ -68,4 +68,18 @@ namespace NXB
 			CUDA_CHECK(cudaFreeAsync(ptr, 0));
 		}
 	};
+
+	class CudaUtils
+	{
+	public:
+		static uint32_t GetGridSizeFullOccupancy(const void* func, uint32_t blockSize)
+		{
+			int32_t blocksPerSM;
+			cudaDeviceProp properties;
+			cudaGetDeviceProperties(&properties, 0);
+			CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocksPerSM, func, blockSize, 0));
+			uint32_t gridSize = blocksPerSM * properties.multiProcessorCount;
+			return gridSize;
+		}
+	};
 }
