@@ -7,6 +7,7 @@
 #include "NXB/AABB.h"
 
 #define SEARCH_RADIUS 8
+#define MERGING_THRESHOLD 2
 
 namespace NXB
 {
@@ -42,9 +43,9 @@ namespace NXB
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		// Load up to WARP_SIZE / 2 cluster indices
+		// Load up to MERGING_THRESHOLD cluster indices
 		uint32_t index = laneWarpId - offset;
-		bool validLaneId = index >= 0 && index < min(end - start, WARP_SIZE / 2);
+		bool validLaneId = index >= 0 && index < min(end - start, MERGING_THRESHOLD);
 
 		if (validLaneId)
 			clusterIdx = buildState.clusterIdx[start + index];
@@ -183,7 +184,7 @@ namespace NXB
 			clusterBounds = buildState.nodes[clusterIdx].bounds;
 
 		// If we reached the root node, we want to merge all the remaining clusters (ie threshold = 1)
-		uint32_t threshold = __shfl_sync(FULL_MASK, final, laneId) ? 1 : WARP_SIZE / 2;
+		uint32_t threshold = __shfl_sync(FULL_MASK, final, laneId) ? 1 : MERGING_THRESHOLD;
 
 		while (numPrim > threshold)
 		{
@@ -256,7 +257,7 @@ namespace NXB
 			uint32_t size = right - left + 1;
 			bool final = laneActive && size == buildState.primCount;
 
-			uint32_t warpMask = __ballot_sync(FULL_MASK, laneActive && (size > WARP_SIZE / 2) || final);
+			uint32_t warpMask = __ballot_sync(FULL_MASK, laneActive && (size > MERGING_THRESHOLD) || final);
 
 			while (warpMask)
 			{
