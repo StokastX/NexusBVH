@@ -69,43 +69,7 @@ int main(void)
 	NXB::BuildConfig buildConfig;
 	buildConfig.prioritizeSpeed = true;
 
-	//NXB::BenchmarkBuild(NXB::BuildBinary<NXB::Triangle>, 10, 100, dTriangles, TRIANGLE_COUNT, buildConfig);
-
-	std::cout << "========== Building BVH ==========" << std::endl << std::endl;
-	NXB::BVHBuildMetrics buildMetrics;
-	NXB::BVH2 dBvh = NXB::BuildBinary(dTriangles, TRIANGLE_COUNT, buildConfig, &buildMetrics);
-	NXB::BVH2 bvh = NXB::ToHost(dBvh);
-
-	double cost = 0.0f;
-	for (uint32_t i = 0; i < bvh.nodeCount; ++i)
-	{
-		NXB::BVH2::Node node = bvh.nodes[i];
-		if (node.leftChild == INVALID_IDX)
-		{
-			cost += 2 * (double)node.bounds.Area() / bvh.bounds.Area();
-		}
-		else
-			cost += 3 * (double)node.bounds.Area() / bvh.bounds.Area();
-	}
-
-	std::cout << "Cost: " << cost << std::endl;
-
-	std::cout << "Primitive count: " << bvh.primCount << std::endl;
-	std::cout << "Node count: " << bvh.nodeCount << std::endl << std::endl;
-
-	std::cout << "---------- TIMINGS ----------" << std::endl << std::endl;
-	std::cout << "Mesh bounds: " << buildMetrics.computeSceneBoundsTime << " ms" << std::endl;
-	std::cout << "Morton codes: " << buildMetrics.computeMortonCodesTime << " ms" << std::endl;
-	std::cout << "Radix sort: " << buildMetrics.radixSortTime << " ms" << std::endl;
-	std::cout << "Binary BVH building: " << buildMetrics.bvhBuildTime << " ms" << std::endl;
-	std::cout << "Total build time: " << buildMetrics.totalTime << " ms" << std::endl;
-
-	std::cout << std::endl << "BVH cost: " << buildMetrics.bvhCost << std::endl << std::endl;
-
-	std::cout << std::endl << "========== Building done ==========" << std::endl << std::endl;
-
-	NXB::FreeDeviceBVH(dBvh);
-	NXB::FreeHostBVH(bvh);
+	NXB::BenchmarkBuild(NXB::BuildBinary<NXB::Triangle>, 50, 100, dTriangles, TRIANGLE_COUNT, buildConfig);
 
 	CudaMemory::Free(dTriangles);
 

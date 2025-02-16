@@ -7,7 +7,7 @@
 #include "NXB/AABB.h"
 
 #define SEARCH_RADIUS 8
-#define MERGING_THRESHOLD 2
+#define MERGING_THRESHOLD 16
 
 namespace NXB
 {
