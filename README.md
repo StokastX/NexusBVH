@@ -1,7 +1,7 @@
 # Nexus BVH
 ![teaser9](https://github.com/user-attachments/assets/a56284f9-bfe7-49d1-b83a-6374537d7e9b)
 
-This project was developed as part of the GPU Computing course at Ensimag. The full report can be found [here](https://github.com/user-attachments/files/18828781/report.pdf).
+This project was developed as part of the GPU Computing course at Ensimag. The full report can be found [here](https://patrick-attimont.com/assets/documents/NXB_report.pdf).
 
 NexusBVH is a fast and high-quality GPU BVH builder written in C++ and CUDA.
 It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/3675377) algorithm, focusing on high-performance and high-quality hierarchy generation.
