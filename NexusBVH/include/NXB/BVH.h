@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <cstdint>
 #include "Math/CudaMath.h"
 #include "AABB.h"
 

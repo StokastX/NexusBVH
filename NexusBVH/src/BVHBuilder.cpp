@@ -25,7 +25,7 @@ namespace NXB
 		void* args[2] = { &buildState, &mortonCodes };
 
 		uint32_t blockSize = 64;
-		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy(ComputeMortonCodes<McT>, blockSize);
+		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy((void*)ComputeMortonCodes<McT>, blockSize);
 
 		cudaEvent_t start, stop;
 		CUDA_CHECK(cudaEventCreate(&start));
@@ -126,7 +126,7 @@ namespace NXB
 		CudaMemory::CopyAsync(buildState.sceneBounds, &sceneBounds, 1, cudaMemcpyHostToDevice);
 
 		uint32_t blockSize = 64;
-		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy(ComputeSceneBounds<PrimT>, blockSize);
+		uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy((void*)ComputeSceneBounds<PrimT>, blockSize);
 
 		void* args[2] = { &buildState, &primitives };
 
