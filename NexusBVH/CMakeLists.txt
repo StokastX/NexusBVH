@@ -40,15 +40,22 @@ target_include_directories(NexusBVH
 )
 
 # CUDA optimizations
-target_compile_options(NexusBVH PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-	--use_fast_math
-	-rdc=true
->)
+target_compile_options(NexusBVH PRIVATE
+  $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:
+    --use_fast_math -G -g -lineinfo -rdc=true
+  >
+  $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>>:
+    --use_fast_math -rdc=true
+  >
+)
 
 # CUDA device link-time optimization (DLTO)
-target_link_options(NexusBVH PRIVATE $<DEVICE_LINK:
-	--dlink-time-opt
->)
+target_link_options(NexusBVH PRIVATE
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:>
+  $<$<AND:$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>,$<COMPILE_LANGUAGE:CUDA>>:
+    --dlink-time-opt
+  >
+)
 
 # Display tree files in Visual Studio
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}

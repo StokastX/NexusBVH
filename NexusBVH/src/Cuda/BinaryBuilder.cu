@@ -216,7 +216,6 @@ namespace NXB
 			if (laneActive)
 			{
 				int32_t previousId;
-				uint32_t parentId;
 
 				if (FindParentId(left, right, buildState.primCount, mortonCodes) == right)
 				{
