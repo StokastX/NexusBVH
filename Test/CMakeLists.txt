@@ -1,7 +1,6 @@
-project(Test)
+project(Test LANGUAGES C CXX CUDA)
 
-enable_language(CUDA)
-set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+find_package(CUDAToolkit REQUIRED)
 
 file(GLOB src
 	src/Main.cpp
@@ -17,12 +16,6 @@ target_include_directories(Test
 	PUBLIC
 	src
 )
-
-# CUDA optimizations
-target_compile_options(Test PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-	--use_fast_math
-	-rdc=true
->)
 
 # Set Nexus as startup project in Visual Studio
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Test)
