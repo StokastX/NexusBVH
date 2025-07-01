@@ -1,6 +1,7 @@
-project(NexusBVH)
+project(NexusBVH LANGUAGES C CXX CUDA)
 
-enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
+
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 file(GLOB src
@@ -35,6 +36,7 @@ set_target_properties(NexusBVH PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 target_include_directories(NexusBVH
     PUBLIC
 		include
+		${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
     PRIVATE
         src
 )
