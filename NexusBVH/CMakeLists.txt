@@ -53,10 +53,7 @@ target_compile_options(NexusBVH PRIVATE
 
 # CUDA device link-time optimization (DLTO)
 target_link_options(NexusBVH PRIVATE
-  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:>
-  $<$<AND:$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>,$<COMPILE_LANGUAGE:CUDA>>:
-    --dlink-time-opt
-  >
+  $<$<CONFIG:Release>:$<DEVICE_LINK:--dlink-time-opt>>
 )
 
 # Display tree files in Visual Studio
