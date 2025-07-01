@@ -3,6 +3,7 @@
 #include "Math/Math.h"
 #include "Cuda/CudaUtils.h"
 #include "Cuda/BinaryBuilder.h"
+#include "Cuda/WideConverter.h"
 #include "Cuda/Setup.h"
 #include "Cuda/Eval.h"
 #include <chrono>
@@ -10,7 +11,7 @@
 namespace NXB
 {
 	template <typename McT = uint64_t>
-	BVH2 BuildBinaryImpl(BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2 BuildBVH2Impl(BVH2BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = buildState.primCount * 2 - 1;
 		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
@@ -111,11 +112,11 @@ namespace NXB
 
 
 	template<typename PrimT>
-	BVH2 BuildBinary(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	BVH2 BuildBVH2(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		BVH2 bvh;
 		uint32_t nodeCount = primCount * 2 - 1;
-		BuildState buildState;
+		BVH2BuildState buildState;
 		buildState.primCount = primCount;
 		buildState.sceneBounds = CudaMemory::AllocAsync<AABB>(1);
 		buildState.nodes = CudaMemory::AllocAsync<BVH2::Node>(nodeCount);
@@ -157,9 +158,9 @@ namespace NXB
 		// Step 2 - 4: Build BVH
 		// ==============================================================================
 		if (buildConfig.prioritizeSpeed)
-			bvh = BuildBinaryImpl<uint32_t>(buildState, buildConfig, buildMetrics);
+			bvh = BuildBVH2Impl<uint32_t>(buildState, buildConfig, buildMetrics);
 		else
-			bvh = BuildBinaryImpl<uint64_t>(buildState, buildConfig, buildMetrics);
+			bvh = BuildBVH2Impl<uint64_t>(buildState, buildConfig, buildMetrics);
 		// ==============================================================================
 
 		CudaMemory::FreeAsync(buildState.sceneBounds);
@@ -169,9 +170,62 @@ namespace NXB
 		return bvh;
 	}
 
-	BVH8 ConvertToWideBVH(BVH2* binaryBVH, BVHBuildMetrics* buildMetrics)
+	template <typename PrimT>
+	BVH8 BuildBVH8(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
-		return BVH8();
+		BVH2 bvh2 = BuildBVH2<PrimT>(primitives, primCount, buildConfig, buildMetrics);
+
+		BVH8BuildState buildState;
+		buildState.bvh2Nodes = bvh2.nodes;
+		buildState.primCount = bvh2.primCount;
+		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount * 2 - 1);
+		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+		buildState.nodeCount = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.workCounter = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.indexPairs = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
+
+		// Init index pairs
+		CudaMemory::MemsetAsync(buildState.indexPairs, INVALID_IDX, sizeof(uint64_t) * buildState.primCount);
+		
+		CudaMemory::MemsetAsync(buildState.workCounter, 0, sizeof(uint32_t));
+
+		uint32_t blockSize = 64;
+		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
+		void* args[1] = { &buildState };
+
+		if (buildMetrics)
+		{
+			cudaEvent_t start, stop;
+			CUDA_CHECK(cudaEventCreate(&start));
+			CUDA_CHECK(cudaEventCreate(&stop));
+			CUDA_CHECK(cudaEventRecord(start));
+
+			CUDA_CHECK(cudaLaunchKernel(BuildBVH8, gridSize, blockSize, args, 0, 0));
+
+			CUDA_CHECK(cudaEventRecord(stop));
+			CUDA_CHECK(cudaEventSynchronize(stop));
+			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->bvh8ConversionTime, start, stop));
+			CUDA_CHECK(cudaEventDestroy(start));
+			CUDA_CHECK(cudaEventDestroy(stop));
+		}
+		else
+		{
+			CUDA_CHECK(cudaLaunchKernel(BuildBVH8, gridSize, blockSize, args, 0, 0));
+		}
+
+		BVH8 bvh8;
+		bvh8.nodes = buildState.bvh8Nodes;
+		bvh8.primCount = buildState.primCount;
+		bvh8.bounds = bvh2.bounds;
+		CudaMemory::CopyAsync<uint32_t>(&bvh8.nodeCount, buildState.nodeCount, 1, cudaMemcpyDeviceToHost);
+
+		CudaMemory::FreeAsync(bvh2.nodes);
+		CudaMemory::FreeAsync(buildState.nodeCount);
+		CudaMemory::FreeAsync(buildState.indexPairs);
+
+		CUDA_CHECK(cudaDeviceSynchronize());
+
+		return bvh8;
 	}
 
 	BVH2 ToHost(BVH2 deviceBvh)
@@ -200,6 +254,9 @@ namespace NXB
 
 	}
 
-	template BVH2 BuildBinary<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
-	template BVH2 BuildBinary<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH2 BuildBVH2<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH2 BuildBVH2<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+
+	template BVH8 BuildBVH8<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
+	template BVH8 BuildBVH8<AABB>(AABB* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);
 }

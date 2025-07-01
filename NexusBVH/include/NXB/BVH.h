@@ -41,31 +41,26 @@ namespace NXB
 	{
 		struct Node
 		{
-			using byte = unsigned char;
-
 			// P (12 bytes), e (3 bytes), imask (1 byte)
 			float4 p_e_imask;
 
-			// Index of the first child
-			uint32_t childBaseIdx = 0;
+			// Child base index (4 bytes), triangle base index (4 bytes), meta (8 bytes)
+			float4 childidx_tridx_meta;
 
-			// Index of the first triangle
-			uint32_t triangleBaseIdx = 0;
+			// qlox (8 bytes), qloy (8 bytes)
+			float4 qlox_qloy;
 
-			// Field encoding the indexing information of every child
-			byte meta[8];
+			// qloz (8 bytes), qlix (8 bytes)
+			float4 qloz_qhix;
 
-			// Quantized origin of the childs' AABBs
-			byte qlox[8], qloy[8], qloz[8];
-
-			// Quantized end point of the childs' AABBs
-			byte qhix[8], qhiy[8], qhiz[8];
+			// qliy (8 bytes), qliz (8 bytes)
+			float4 qhiy_qhiz;
 		};
 
 		Node* nodes;
 		uint32_t nodeCount;
 
-		uint32_t* primIds;
+		uint32_t* primIdx;
 		uint32_t primCount;
 
 		// Root bounds

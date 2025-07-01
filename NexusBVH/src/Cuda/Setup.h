@@ -14,21 +14,21 @@ namespace NXB
 	 * \param primitives The list of triangles
 	 */
 	template <typename PrimT>
-	__global__ void ComputeSceneBounds(BuildState buildState, PrimT* primitives);
+	__global__ void ComputeSceneBounds(BVH2BuildState buildState, PrimT* primitives);
 
 	/*
 	 * \brief Compute a list of Morton codes from the centroid of the nodes' AABBs contained in buildState
 	 */
 	template <typename McT>
-	__global__ void ComputeMortonCodes(BuildState buildState, McT* mortonCodes);
+	__global__ void ComputeMortonCodes(BVH2BuildState buildState, McT* mortonCodes);
 
 	/*
 	 * \brief Performs one sweep radix sort for 32-bit Morton codes
 	 */
-	void RadixSort(BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	void RadixSort(BVH2BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 
 	/*
 	 * \brief Performs one sweep radix sort for 64-bit Morton codes
 	 */
-	void RadixSort(BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	void RadixSort(BVH2BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 }

@@ -30,6 +30,7 @@ namespace NXB
 		float computeMortonCodesTime = 0.0f;
 		float radixSortTime = 0.0f;
 		float bvhBuildTime = 0.0f;
+		float bvh8ConversionTime = 0.0f;
 		float totalTime = 0.0f;
 
 		float bvhCost = 0.0f;

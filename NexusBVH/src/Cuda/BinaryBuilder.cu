@@ -39,7 +39,7 @@ namespace NXB
 			return left - 1;
 	}
 
-	static __device__ uint32_t LoadIndices(uint32_t start, uint32_t end, uint32_t& clusterIdx, BuildState buildState, uint32_t offset)
+	static __device__ uint32_t LoadIndices(uint32_t start, uint32_t end, uint32_t& clusterIdx, BVH2BuildState buildState, uint32_t offset)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -56,7 +56,7 @@ namespace NXB
 		return validClusterCount;
 	}
 
-	static __device__ void StoreIndices(uint32_t previousNumPrim, uint32_t clusterIdx, BuildState buildState, uint32_t lStart)
+	static __device__ void StoreIndices(uint32_t previousNumPrim, uint32_t clusterIdx, BVH2BuildState buildState, uint32_t lStart)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -69,7 +69,7 @@ namespace NXB
 	}
 
 	// PLOC++ based merging
-	static inline __device__ uint32_t MergeClustersCreateBVH2Node(uint32_t numPrim, uint32_t nearestNeighbor, uint32_t& clusterIdx, AABB& clusterBounds, BuildState buildState)
+	static inline __device__ uint32_t MergeClustersCreateBVH2Node(uint32_t numPrim, uint32_t nearestNeighbor, uint32_t& clusterIdx, AABB& clusterBounds, BVH2BuildState buildState)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -124,7 +124,7 @@ namespace NXB
 	}
 
 	// PLOC++ based nearest neighbor search
-	static inline __device__ uint32_t FindNearestNeighbor(uint32_t numPrim, uint32_t clusterIdx, AABB clusterBounds, BuildState buildState)
+	static inline __device__ uint32_t FindNearestNeighbor(uint32_t numPrim, uint32_t clusterIdx, AABB clusterBounds, BVH2BuildState buildState)
 	{
 		int32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -161,7 +161,7 @@ namespace NXB
 		return minAreaIdx.y;
 	}
 
-	static __device__ void PlocMerge(uint32_t laneId, uint32_t left, uint32_t right, uint32_t split, bool final, BuildState buildState)
+	static __device__ void PlocMerge(uint32_t laneId, uint32_t left, uint32_t right, uint32_t split, bool final, BVH2BuildState buildState)
 	{
 		// Share current lane's LBVH node with other threads in the warp
 		uint32_t lStart = __shfl_sync(FULL_MASK, left, laneId);
@@ -197,7 +197,7 @@ namespace NXB
 
 
 	template <typename McT>
-	__global__ void BuildBinaryBVH(BuildState buildState, McT* mortonCodes)
+	__global__ void BuildBinaryBVH(BVH2BuildState buildState, McT* mortonCodes)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -271,6 +271,6 @@ namespace NXB
 		}
 	}
 
-	template __global__ void BuildBinaryBVH<uint32_t>(BuildState buildState, uint32_t* mortonCodes);
-	template __global__ void BuildBinaryBVH<uint64_t>(BuildState buildState, uint64_t* mortonCodes);
+	template __global__ void BuildBinaryBVH<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
+	template __global__ void BuildBinaryBVH<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 }
