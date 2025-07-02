@@ -2,7 +2,7 @@
 #include "BuilderUtils.h"
 #include <device_launch_parameters.h>
 
-__global__ void NXB::BuildBVH8(BVH8BuildState buildState)
+__global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 {
 	uint32_t threadWarpId = threadIdx.x & (WARP_SIZE - 1);
 
