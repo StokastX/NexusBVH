@@ -35,10 +35,12 @@ namespace NXB
 		// BVH8 nodes
 		BVH8::Node* bvh8Nodes;
 		uint32_t* primIdx;
+
 		uint32_t primCount;
 
 		// Number of BVH8 nodes
 		uint32_t* nodeCount;
+		uint32_t* leafCount;
 
 		// Index pairs
 		uint64_t* indexPairs;

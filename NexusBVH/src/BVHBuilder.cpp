@@ -181,6 +181,7 @@ namespace NXB
 		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount * 2 - 1);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.nodeCount = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.leafCount = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.workCounter = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.indexPairs = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
 
@@ -188,6 +189,8 @@ namespace NXB
 		CudaMemory::MemsetAsync(buildState.indexPairs, INVALID_IDX, sizeof(uint64_t) * buildState.primCount);
 		
 		CudaMemory::MemsetAsync(buildState.workCounter, 0, sizeof(uint32_t));
+		CudaMemory::MemsetAsync(buildState.nodeCount, 0, sizeof(uint32_t));
+		CudaMemory::MemsetAsync(buildState.leafCount, 0, sizeof(uint32_t));
 
 		uint32_t blockSize = 64;
 		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
