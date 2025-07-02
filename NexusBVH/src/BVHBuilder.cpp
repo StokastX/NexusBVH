@@ -200,7 +200,7 @@ namespace NXB
 			CUDA_CHECK(cudaEventCreate(&stop));
 			CUDA_CHECK(cudaEventRecord(start));
 
-			CUDA_CHECK(cudaLaunchKernel(BuildBVH8, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(BuildWideBVH, gridSize, blockSize, args, 0, 0));
 
 			CUDA_CHECK(cudaEventRecord(stop));
 			CUDA_CHECK(cudaEventSynchronize(stop));
@@ -210,7 +210,7 @@ namespace NXB
 		}
 		else
 		{
-			CUDA_CHECK(cudaLaunchKernel(BuildBVH8, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(BuildWideBVH, gridSize, blockSize, args, 0, 0));
 		}
 
 		BVH8 bvh8;

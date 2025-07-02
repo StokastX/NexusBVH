@@ -4,5 +4,5 @@
 
 namespace NXB
 {
-	__global__ void BuildBVH8(BVH8BuildState buildState);
+	__global__ void BuildWideBVH(BVH8BuildState buildState);
 }
