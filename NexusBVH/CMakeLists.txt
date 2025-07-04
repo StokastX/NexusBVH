@@ -1,8 +1,10 @@
+cmake_minimum_required(VERSION 3.24)
 project(NexusBVH LANGUAGES C CXX CUDA)
 
 find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+set(CMAKE_CUDA_ARCHITECTURES native)
 
 file(GLOB src
     include/NXB/BVHBuilder.h
