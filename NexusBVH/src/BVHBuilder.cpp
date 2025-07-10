@@ -180,17 +180,23 @@ namespace NXB
 		buildState.primCount = bvh2.primCount;
 		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount * 2 - 1);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
-		buildState.nodeCount = CudaMemory::AllocAsync<uint32_t>(1);
-		buildState.leafCount = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.nodeCounter = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.leafCounter = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.workCounter = CudaMemory::AllocAsync<uint32_t>(1);
+		buildState.workAllocCounter = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.indexPairs = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
 
 		// Init index pairs
 		CudaMemory::MemsetAsync(buildState.indexPairs, INVALID_IDX, sizeof(uint64_t) * buildState.primCount);
+		// Set first index pair to root of bvh2 and root of bvh8
+		uint64_t firstPair = ((uint64_t)bvh2.nodeCount - 1) << 32;
+		CudaMemory::CopyAsync(buildState.indexPairs, &firstPair, 1, cudaMemcpyHostToDevice);
+		uint32_t nodeCount = 1;
+		CudaMemory::CopyAsync(buildState.nodeCounter, &nodeCount, 1, cudaMemcpyHostToDevice);
+		CudaMemory::CopyAsync(buildState.workAllocCounter, &nodeCount, 1, cudaMemcpyHostToDevice);
 		
 		CudaMemory::MemsetAsync(buildState.workCounter, 0, sizeof(uint32_t));
-		CudaMemory::MemsetAsync(buildState.nodeCount, 0, sizeof(uint32_t));
-		CudaMemory::MemsetAsync(buildState.leafCount, 0, sizeof(uint32_t));
+		CudaMemory::MemsetAsync(buildState.leafCounter, 0, sizeof(uint32_t));
 
 		uint32_t blockSize = 64;
 		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
@@ -218,12 +224,15 @@ namespace NXB
 
 		BVH8 bvh8;
 		bvh8.nodes = buildState.bvh8Nodes;
-		bvh8.primCount = buildState.primCount;
+		bvh8.primIdx = buildState.primIdx;
 		bvh8.bounds = bvh2.bounds;
-		CudaMemory::CopyAsync<uint32_t>(&bvh8.nodeCount, buildState.nodeCount, 1, cudaMemcpyDeviceToHost);
+		bvh8.primCount = buildState.primCount;
+		CudaMemory::CopyAsync<uint32_t>(&bvh8.nodeCount, buildState.nodeCounter, 1, cudaMemcpyDeviceToHost);
 
 		CudaMemory::FreeAsync(bvh2.nodes);
-		CudaMemory::FreeAsync(buildState.nodeCount);
+		CudaMemory::FreeAsync(buildState.nodeCounter);
+		CudaMemory::FreeAsync(buildState.leafCounter);
+		CudaMemory::FreeAsync(buildState.workCounter);
 		CudaMemory::FreeAsync(buildState.indexPairs);
 
 		CUDA_CHECK(cudaDeviceSynchronize());

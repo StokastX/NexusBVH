@@ -35,6 +35,9 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 		workId = atomicAdd(buildState.workCounter, WARP_SIZE);
 
 	workId = __shfl_sync(FULL_MASK, workId, 0) + threadWarpId;
+
+	if (workId >= buildState.primCount)
+		return;
 	
 	while (true)
 	{
@@ -44,13 +47,18 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 
 		// If no work assigned, skip
 		if (bvh2NodeIdx == INVALID_IDX)
+		{
+			__nanosleep(1000);
 			continue;
+		}
 
 		// If leaf node, create a new BVH8 leaf
+		//if (bvh2Nodes[bvh2NodeIdx].leftChild == INVALID_IDX && *buildState.leafCounter > 0)
 		if (bvh2Nodes[bvh2NodeIdx].leftChild == INVALID_IDX)
 		{
 			// For now, a leaf only contains one triangle
 			buildState.primIdx[bvh8NodeIdx] = bvh2Nodes[bvh2NodeIdx].rightChild;
+			break;
 		}
 
 		uint32_t leafCount = 0;
@@ -63,7 +71,7 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 		uint32_t childrenIdx[2] = { bvh2Node.leftChild, bvh2Node.rightChild };
 
 		// Top-down traversal until we get 8 nodes or no inner nodes are remaining
-		while (leafCount + innerCount < 8 && innerCount > 0)
+		while (true)
 		{
 			childBounds[0] = bvh2Nodes[childrenIdx[0]].bounds;
 			childBounds[1] = bvh2Nodes[childrenIdx[1]].bounds;
@@ -81,6 +89,8 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 
 				first = !first;
 			}
+			if (innerCount == 0 || leafCount + innerCount == 8)
+				break;
 
 			// Pop the last inner node from the stack
 			uint32_t nodeIdx = innerNodes[--innerCount];
@@ -88,74 +98,66 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 			childrenIdx[1] = bvh2Nodes[nodeIdx].rightChild;
 		}
 
-		uint32_t childBaseIdx = atomicAdd(buildState.nodeCount, innerCount);
-		uint32_t primBaseIdx = atomicAdd(buildState.leafCount, leafCount);
+		uint32_t childBaseIdx = atomicAdd(buildState.nodeCounter, innerCount);
+		uint32_t workBaseIdx = atomicAdd(buildState.workAllocCounter, innerCount + leafCount - 1);
+		uint32_t primBaseIdx = 0;
+		if (leafCount > 0)
+			primBaseIdx = atomicAdd(buildState.leafCounter, leafCount);
 
 		for (uint32_t i = 0; i < innerCount + leafCount; i++)
 		{
-			uint32_t pair;
+			uint64_t pair;
 			if (i < leafCount)
 				pair = ((uint64_t)leafNodes[i] << 32) | (primBaseIdx + i);
 			else
-				pair = ((uint64_t)innerNodes[i] << 32) | (childBaseIdx + i - leafCount);
+				pair = ((uint64_t)innerNodes[i - leafCount] << 32) | (childBaseIdx + i - leafCount);
 
-			uint32_t idx = i == 0 ? workId : childBaseIdx + i - 1;
+			uint32_t idx = i == 0 ? workId : workBaseIdx + i - 1;
 			buildState.indexPairs[idx] = pair;
 		}
 
-		BVH8::Node bvh8Node;
-		AABB bounds = bvh2Node.bounds;
+		BVH8::NodeExplicit bvh8Node;
 		float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
 
-		byte ex = ceilLog2(diagonal.x * scale);
-		byte ey = ceilLog2(diagonal.y * scale);
-		byte ez = ceilLog2(diagonal.z * scale);
+		bvh8Node.p = bvh2Node.bounds.bMin;
+		bvh8Node.e[0] = ceilLog2(diagonal.x * scale);
+		bvh8Node.e[1] = ceilLog2(diagonal.y * scale);
+		bvh8Node.e[2] = ceilLog2(diagonal.z * scale);
+		bvh8Node.imask = (((uint32_t)1 << innerCount) - 1);
 
-		uint32_t e_imask = (uint32_t)ex << 24 | (uint32_t)ey << 16 | (uint32_t)ez << 8 | (((uint32_t)1 << innerCount) - 1);
-		
-		bvh8Node.p_e_imask.x = bvh2Node.bounds.bMin.x;
-		bvh8Node.p_e_imask.y = bvh2Node.bounds.bMin.y;
-		bvh8Node.p_e_imask.z = bvh2Node.bounds.bMin.z;
-		bvh8Node.p_e_imask.w = __uint_as_float(e_imask);
+		bvh8Node.childBaseIdx = childBaseIdx;
+		bvh8Node.primBaseIdx = primBaseIdx;
 
-		bvh8Node.childidx_tridx_meta.x = __uint_as_float(childBaseIdx);
-		bvh8Node.childidx_tridx_meta.y = __uint_as_float(primBaseIdx);
+		float3 invE = make_float3(invPow2(bvh8Node.e[0]), invPow2(bvh8Node.e[1]), invPow2(bvh8Node.e[2]));
 
-		float3 invE = make_float3(invPow2(ex), invPow2(ey), invPow2(ez));
-		byte* meta = (byte*)&bvh8Node.childidx_tridx_meta.z;
-		byte* qlox = (byte*)&bvh8Node.qlox_qloy;
-		byte* qloy = (byte*)&bvh8Node.qlox_qloy.z;
-		byte* qloz = (byte*)&bvh8Node.qloz_qhix;
-		byte* qhix = (byte*)&bvh8Node.qloz_qhix.z;
-		byte* qhiy = (byte*)&bvh8Node.qhiy_qhiz;
-		byte* qhiz = (byte*)&bvh8Node.qhiy_qhiz.z;
-
-		for (uint32_t i = 0; i < innerCount + leafCount; i++)
+		for (uint32_t i = 0; i < 8; i++)
 		{
-			meta[i] = 0;
+			bvh8Node.meta[i] = 0;
 			AABB childBounds;
 
 			if (i < leafCount)
 			{
-				meta[i] |= 1 << 5 | i;
+				bvh8Node.meta[i] |= 1 << 5 | i;
 				childBounds = bvh2Nodes[leafNodes[i]].bounds;
 			}
-			else if (i < leafCount + innerCount)
+			else if (i < innerCount + leafCount)
 			{
-				meta[i] |= 1 << 5;
-				meta[i] |= 24 + i - leafCount;
+				bvh8Node.meta[i] |= 1 << 5;
+				bvh8Node.meta[i] |= 24 + i - leafCount;
 				childBounds = bvh2Nodes[innerNodes[i - leafCount]].bounds;
 			}
+			else
+				continue;
 
-			qlox[i] = (byte)floorf((childBounds.bMin.x - bvh2Node.bounds.bMin.x) * invE.x);
-			qloy[i] = (byte)floorf((childBounds.bMin.y - bvh2Node.bounds.bMin.y) * invE.y);
-			qloz[i] = (byte)floorf((childBounds.bMin.z - bvh2Node.bounds.bMin.z) * invE.z);
+			bvh8Node.qlox[i] = (byte)floorf((childBounds.bMin.x - bvh2Node.bounds.bMin.x) * invE.x);
+			bvh8Node.qloy[i] = (byte)floorf((childBounds.bMin.y - bvh2Node.bounds.bMin.y) * invE.y);
+			bvh8Node.qloz[i] = (byte)floorf((childBounds.bMin.z - bvh2Node.bounds.bMin.z) * invE.z);
 
-			qhix[i] = (byte)ceilf((childBounds.bMax.x - bvh2Node.bounds.bMin.x) * invE.x);
-			qhiy[i] = (byte)ceilf((childBounds.bMax.y - bvh2Node.bounds.bMin.y) * invE.y);
-			qhiz[i] = (byte)ceilf((childBounds.bMax.z - bvh2Node.bounds.bMin.z) * invE.z);
+			bvh8Node.qhix[i] = (byte)ceilf((childBounds.bMax.x - bvh2Node.bounds.bMin.x) * invE.x);
+			bvh8Node.qhiy[i] = (byte)ceilf((childBounds.bMax.y - bvh2Node.bounds.bMin.y) * invE.y);
+			bvh8Node.qhiz[i] = (byte)ceilf((childBounds.bMax.z - bvh2Node.bounds.bMin.z) * invE.z);
 		}
 
-		bvh8Nodes[bvh8NodeIdx] = bvh8Node;
+		bvh8Nodes[bvh8NodeIdx] = *(BVH8::Node*)&bvh8Node;
 	}
 }

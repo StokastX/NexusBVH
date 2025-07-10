@@ -39,13 +39,14 @@ namespace NXB
 		uint32_t primCount;
 
 		// Number of BVH8 nodes
-		uint32_t* nodeCount;
-		uint32_t* leafCount;
+		uint32_t* nodeCounter;
+		uint32_t* leafCounter;
 
 		// Index pairs
 		uint64_t* indexPairs;
 
-		// Atomic counter to dispatch work items
+		// Atomic counters to dispatch work items
 		uint32_t* workCounter;
+		uint32_t* workAllocCounter;
 	};
 }
