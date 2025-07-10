@@ -79,10 +79,10 @@ namespace NXB
 		cudaEvent_t start, stop;
 		if (buildMetrics)
 		{
-			CUDA_CHECK(cudaEventCreate(&start);
-			CUDA_CHECK(cudaEventCreate(&stop);
-			CUDA_CHECK(cudaDeviceSynchronize()));
-			CUDA_CHECK(cudaEventRecord(start)));
+			CUDA_CHECK(cudaEventCreate(&start));
+			CUDA_CHECK(cudaEventCreate(&stop));
+			CUDA_CHECK(cudaDeviceSynchronize());
+			CUDA_CHECK(cudaEventRecord(start));
 		}
 
 		// Perform radix sorting
@@ -128,10 +128,10 @@ namespace NXB
 		cudaEvent_t start, stop;
 		if (buildMetrics)
 		{
-			CUDA_CHECK(cudaEventCreate(&start);
-			CUDA_CHECK(cudaEventCreate(&stop);
-			CUDA_CHECK(cudaDeviceSynchronize()));
-			CUDA_CHECK(cudaEventRecord(start)));
+			CUDA_CHECK(cudaEventCreate(&start));
+			CUDA_CHECK(cudaEventCreate(&stop));
+			CUDA_CHECK(cudaDeviceSynchronize());
+			CUDA_CHECK(cudaEventRecord(start));
 		}
 
 		// Perform radix sorting
