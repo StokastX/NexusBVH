@@ -123,7 +123,7 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 		bvh8Node.e[0] = ceilLog2(diagonal.x * scale);
 		bvh8Node.e[1] = ceilLog2(diagonal.y * scale);
 		bvh8Node.e[2] = ceilLog2(diagonal.z * scale);
-		bvh8Node.imask = (((uint32_t)1 << innerCount) - 1);
+		bvh8Node.imask = 0;
 
 		bvh8Node.childBaseIdx = childBaseIdx;
 		bvh8Node.primBaseIdx = primBaseIdx;
@@ -137,13 +137,14 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 
 			if (i < leafCount)
 			{
-				bvh8Node.meta[i] |= 1 << 5 | i;
+				bvh8Node.meta[i] |= (1 << 5) | i;
 				childBounds = bvh2Nodes[leafNodes[i]].bounds;
 			}
 			else if (i < innerCount + leafCount)
 			{
+				bvh8Node.imask |= 1 << i;
 				bvh8Node.meta[i] |= 1 << 5;
-				bvh8Node.meta[i] |= 24 + i - leafCount;
+				bvh8Node.meta[i] |= 24 + i;
 				childBounds = bvh2Nodes[innerNodes[i - leafCount]].bounds;
 			}
 			else
