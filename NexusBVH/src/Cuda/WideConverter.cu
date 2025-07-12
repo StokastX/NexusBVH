@@ -7,7 +7,7 @@
 using byte = unsigned char;
 constexpr float scale = 1.0f / ((float)(1 << NQ) - 1);
 
-__device__ __forceinline__ uint32_t ceilLog2(float x)
+__device__ __forceinline__ uint32_t CeilLog2(float x)
 {
     uint32_t ix = __float_as_uint(x);
     uint32_t exp = ((ix >> 23) & 0xFF);
@@ -16,11 +16,22 @@ __device__ __forceinline__ uint32_t ceilLog2(float x)
     return exp + !isPow2;
 }
 
-__device__ __forceinline__ float invPow2(byte eBiased)
+__device__ __forceinline__ float InvPow2(byte eBiased)
 {
     return __uint_as_float((uint32_t)(254 - eBiased) << 23);
 }
 
+__device__ __forceinline__ uint64_t GlobalLoad(uint64_t* addr)
+{
+	uint64_t value;
+	asm volatile("ld.global.cg.u64 %0, [%1];" : "=l"(value) : "l"(addr));
+	return value;
+}
+
+__device__ __forceinline__ void GlobalStore(uint64_t* addr, uint64_t value)
+{
+    asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(addr), "l"(value));
+}
 
 __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 {
@@ -38,19 +49,17 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 
 	if (workId >= buildState.primCount)
 		return;
-	
+
 	while (true)
 	{
-		uint64_t indexPair = buildState.indexPairs[workId];
+		// We don't want to load index pairs from L1 cache, since we want the global updated version
+		uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
 		uint32_t bvh2NodeIdx = indexPair >> 32;
 		uint32_t bvh8NodeIdx = (uint32_t)indexPair;
 
 		// If no work assigned, skip
 		if (bvh2NodeIdx == INVALID_IDX)
-		{
-			__nanosleep(1000);
 			continue;
-		}
 
 		// If leaf node, create a new BVH8 leaf
 		//if (bvh2Nodes[bvh2NodeIdx].leftChild == INVALID_IDX && *buildState.leafCounter > 0)
@@ -113,22 +122,22 @@ __global__ void NXB::BuildWideBVH(BVH8BuildState buildState)
 				pair = ((uint64_t)innerNodes[i - leafCount] << 32) | (childBaseIdx + i - leafCount);
 
 			uint32_t idx = i == 0 ? workId : workBaseIdx + i - 1;
-			buildState.indexPairs[idx] = pair;
+			GlobalStore(&buildState.indexPairs[idx], pair);
 		}
 
 		BVH8::NodeExplicit bvh8Node;
 		float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
 
 		bvh8Node.p = bvh2Node.bounds.bMin;
-		bvh8Node.e[0] = ceilLog2(diagonal.x * scale);
-		bvh8Node.e[1] = ceilLog2(diagonal.y * scale);
-		bvh8Node.e[2] = ceilLog2(diagonal.z * scale);
+		bvh8Node.e[0] = CeilLog2(diagonal.x * scale);
+		bvh8Node.e[1] = CeilLog2(diagonal.y * scale);
+		bvh8Node.e[2] = CeilLog2(diagonal.z * scale);
 		bvh8Node.imask = 0;
 
 		bvh8Node.childBaseIdx = childBaseIdx;
 		bvh8Node.primBaseIdx = primBaseIdx;
 
-		float3 invE = make_float3(invPow2(bvh8Node.e[0]), invPow2(bvh8Node.e[1]), invPow2(bvh8Node.e[2]));
+		float3 invE = make_float3(InvPow2(bvh8Node.e[0]), InvPow2(bvh8Node.e[1]), InvPow2(bvh8Node.e[2]));
 
 		for (uint32_t i = 0; i < 8; i++)
 		{

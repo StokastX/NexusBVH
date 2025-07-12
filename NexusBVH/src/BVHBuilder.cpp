@@ -178,7 +178,7 @@ namespace NXB
 		BVH8BuildState buildState;
 		buildState.bvh2Nodes = bvh2.nodes;
 		buildState.primCount = bvh2.primCount;
-		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount * 2 - 1);
+		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount);
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.nodeCounter = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.leafCounter = CudaMemory::AllocAsync<uint32_t>(1);
@@ -216,6 +216,8 @@ namespace NXB
 			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->bvh8ConversionTime, start, stop));
 			CUDA_CHECK(cudaEventDestroy(start));
 			CUDA_CHECK(cudaEventDestroy(stop));
+
+			buildMetrics->totalTime += buildMetrics->bvh8ConversionTime;
 		}
 		else
 		{
@@ -259,6 +261,12 @@ namespace NXB
 	void FreeDeviceBVH(BVH2 deviceBvh)
 	{
 		CudaMemory::Free(deviceBvh.nodes);
+	}
+
+	void FreeDeviceBVH(BVH8 deviceBvh)
+	{
+		CudaMemory::Free(deviceBvh.nodes);
+		CudaMemory::Free(deviceBvh.primIdx);
 	}
 
 	void FreeBVH(BVH8* wideBVH)

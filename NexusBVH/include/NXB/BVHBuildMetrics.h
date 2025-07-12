@@ -10,6 +10,7 @@ namespace NXB
 			computeMortonCodesTime += other.computeMortonCodesTime;
 			radixSortTime += other.radixSortTime;
 			bvhBuildTime += other.bvhBuildTime;
+			bvh8ConversionTime += other.bvh8ConversionTime;
 			totalTime += other.totalTime;
 			bvhCost += other.bvhCost;
 			return *this;
@@ -21,6 +22,7 @@ namespace NXB
 			result.computeMortonCodesTime = computeMortonCodesTime / divisor;
 			result.radixSortTime = radixSortTime / divisor;
 			result.bvhBuildTime = bvhBuildTime / divisor;
+			result.bvh8ConversionTime = bvh8ConversionTime / divisor;
 			result.totalTime = totalTime / divisor;
 			result.bvhCost = bvhCost / divisor;
 			return result;
@@ -73,7 +75,8 @@ namespace NXB
 		std::cout << "Scene bounds: " << aggregatedMetrics.computeSceneBoundsTime << " ms" << std::endl;
 		std::cout << "Morton codes: " << aggregatedMetrics.computeMortonCodesTime << " ms" << std::endl;
 		std::cout << "Radix sort: " << aggregatedMetrics.radixSortTime << " ms" << std::endl;
-		std::cout << "Bvh build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
+		std::cout << "BVH build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
+		std::cout << "BVH8 conversion time: " << aggregatedMetrics.bvh8ConversionTime << " ms" << std::endl;
 		std::cout << "Total BVH build time: " << aggregatedMetrics.totalTime << " ms" << std::endl;
 		std::cout << std::endl << "BVH cost: " << aggregatedMetrics.bvhCost << std::endl;
 

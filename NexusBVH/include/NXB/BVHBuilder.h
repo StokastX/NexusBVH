@@ -45,9 +45,14 @@ namespace NXB
 	void FreeHostBVH(BVH2 hostBvh);
 
 	/*
-	 * \brief Free the host instance of the binary BVH
+	 * \brief Free the device instance of the binary BVH
 	 */
 	void FreeDeviceBVH(BVH2 deviceBvh);
+
+	/*
+	 * \brief Free the device instance of the compressed wide BVH
+	 */
+	void FreeDeviceBVH(BVH8 deviceBvh);
 
 	/*
 	 * \brief Free the device instance of the wide BVH
