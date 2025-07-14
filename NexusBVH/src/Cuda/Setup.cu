@@ -10,7 +10,7 @@
 namespace NXB
 {
 	template <typename PrimT>
-	__global__ void ComputeSceneBounds(BVH2BuildState buildState, PrimT* primitives)
+	__global__ void ComputeSceneBoundsKernel(BVH2BuildState buildState, PrimT* primitives)
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
@@ -40,7 +40,7 @@ namespace NXB
 
 
 	template <typename McT>
-	__global__ void ComputeMortonCodes(BVH2BuildState buildState, McT* mortonCodes)
+	__global__ void ComputeMortonCodesKernel(BVH2BuildState buildState, McT* mortonCodes)
 	{
 		uint32_t primIdx = blockDim.x * blockIdx.x + threadIdx.x;
 		uint32_t threadCount = blockDim.x * gridDim.x;
@@ -81,7 +81,6 @@ namespace NXB
 		{
 			CUDA_CHECK(cudaEventCreate(&start));
 			CUDA_CHECK(cudaEventCreate(&stop));
-			CUDA_CHECK(cudaDeviceSynchronize());
 			CUDA_CHECK(cudaEventRecord(start));
 		}
 
@@ -130,7 +129,6 @@ namespace NXB
 		{
 			CUDA_CHECK(cudaEventCreate(&start));
 			CUDA_CHECK(cudaEventCreate(&stop));
-			CUDA_CHECK(cudaDeviceSynchronize());
 			CUDA_CHECK(cudaEventRecord(start));
 		}
 
@@ -155,9 +153,9 @@ namespace NXB
 		CudaMemory::FreeAsync(valuesBuffer.Alternate());
 	}
 
-	template __global__ void ComputeSceneBounds<Triangle>(BVH2BuildState buildState, Triangle* primitives);
-	template __global__ void ComputeSceneBounds<AABB>(BVH2BuildState buildState, AABB* primitives);
+	template __global__ void ComputeSceneBoundsKernel<Triangle>(BVH2BuildState buildState, Triangle* primitives);
+	template __global__ void ComputeSceneBoundsKernel<AABB>(BVH2BuildState buildState, AABB* primitives);
 
-	template __global__ void ComputeMortonCodes<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
-	template __global__ void ComputeMortonCodes<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
+	template __global__ void ComputeMortonCodesKernel<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
+	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 }

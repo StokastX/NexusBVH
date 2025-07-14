@@ -54,9 +54,4 @@ namespace NXB
 	 */
 	void FreeDeviceBVH(BVH8 deviceBvh);
 
-	/*
-	 * \brief Free the device instance of the wide BVH
-	 */
-	void FreeBVH(BVH8* wideBvh);
-
 }

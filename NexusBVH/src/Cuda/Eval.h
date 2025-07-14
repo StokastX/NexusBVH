@@ -5,5 +5,5 @@
 
 namespace NXB
 {
-	__global__ void ComputeBVHCost(BVH2 bvh, float* cost);
+	__global__ void ComputeBVHCostKernel(BVH2 bvh, float* cost);
 }

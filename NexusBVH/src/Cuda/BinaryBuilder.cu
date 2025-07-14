@@ -197,7 +197,7 @@ namespace NXB
 
 
 	template <typename McT>
-	__global__ void BuildBinaryBVH(BVH2BuildState buildState, McT* mortonCodes)
+	__global__ void BuildBVH2Kernel(BVH2BuildState buildState, McT* mortonCodes)
 	{
 		const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -271,6 +271,6 @@ namespace NXB
 		}
 	}
 
-	template __global__ void BuildBinaryBVH<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
-	template __global__ void BuildBinaryBVH<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
+	template __global__ void BuildBVH2Kernel<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
+	template __global__ void BuildBVH2Kernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 }

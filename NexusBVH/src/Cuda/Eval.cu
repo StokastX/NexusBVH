@@ -9,7 +9,7 @@
 
 namespace NXB
 {
-	__global__ void ComputeBVHCost(BVH2 bvh, float* cost)
+	__global__ void ComputeBVHCostKernel(BVH2 bvh, float* cost)
 	{
 		uint32_t nodeIdx = blockDim.x * blockIdx.x + threadIdx.x;
 		uint32_t laneId = threadIdx.x & (WARP_SIZE - 1);
