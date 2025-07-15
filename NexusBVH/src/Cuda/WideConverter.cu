@@ -47,6 +47,9 @@ namespace NXB
 		uint32_t mask = (1u << i) - 1;
 		return __popc(x & mask);
 	}
+
+	// Auction algorithm
+	// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
 	__device__ __forceinline__ void Auction(float cost[8][8], float maxCost, uint32_t n, uint32_t assignments[8])
 	{
 		float prices[8];
@@ -147,7 +150,7 @@ namespace NXB
 			if (!laneActive)
 				continue;
 
-			// We don't want to load index pairs from L1 cache, since we want the updated version in global break
+			// We don't want to load index pairs from L1 cache, since we want the updated version in global memory
 			uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
 			uint32_t bvh2NodeIdx = indexPair >> 32;
 			uint32_t bvh8NodeIdx = (uint32_t)indexPair;
@@ -240,7 +243,6 @@ namespace NXB
 			}
 
 			// Reorder children using auction algorithm
-			// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
 			uint32_t assignments[8];
 			Auction(cost, maxCost, childCount, assignments);
 
