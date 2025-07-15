@@ -3,45 +3,117 @@
 #include <float.h>
 #include <device_launch_parameters.h>
 
+// Quantization scale
 #define NQ 8
+
+// Factor used in epsilon scaling for the auction algorithm
+#define THETA 10
 
 using byte = unsigned char;
 constexpr float scale = 1.0f / ((float)(1 << NQ) - 1);
+constexpr float invTheta = 1.0f / (float)THETA;
 
-__device__ __forceinline__ uint32_t CeilLog2(float x)
-{
-    uint32_t ix = __float_as_uint(x);
-    uint32_t exp = ((ix >> 23) & 0xFF);
-    // check if x is exactly 2^exp => mantissa bits are zero
-    bool isPow2 = (ix & ((1 << 23) - 1)) == 0;
-    return exp + !isPow2;
-}
-
-__device__ __forceinline__ float InvPow2(byte eBiased)
-{
-    return __uint_as_float((uint32_t)(254 - eBiased) << 23);
-}
-
-__device__ __forceinline__ uint64_t GlobalLoad(uint64_t* addr)
-{
-	uint64_t value;
-	asm volatile("ld.global.cg.u64 %0, [%1];" : "=l"(value) : "l"(addr));
-	return value;
-}
-
-__device__ __forceinline__ void GlobalStore(uint64_t* addr, uint64_t value)
-{
-    asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(addr), "l"(value));
-}
-
-__device__ __forceinline__ uint32_t CountBitsBelow(uint32_t x, uint32_t i)
-{
-	uint32_t mask = (1u << i) - 1;
-	return __popc(x & mask);
-}
 
 namespace NXB
 {
+	__device__ __forceinline__ uint32_t CeilLog2(float x)
+	{
+		uint32_t ix = __float_as_uint(x);
+		uint32_t exp = ((ix >> 23) & 0xFF);
+		// check if x is exactly 2^exp => mantissa bits are zero
+		bool isPow2 = (ix & ((1 << 23) - 1)) == 0;
+		return exp + !isPow2;
+	}
+
+	__device__ __forceinline__ float InvPow2(byte eBiased)
+	{
+		return __uint_as_float((uint32_t)(254 - eBiased) << 23);
+	}
+
+	__device__ __forceinline__ uint64_t GlobalLoad(uint64_t* addr)
+	{
+		uint64_t value;
+		asm volatile("ld.global.cg.u64 %0, [%1];" : "=l"(value) : "l"(addr));
+		return value;
+	}
+
+	__device__ __forceinline__ void GlobalStore(uint64_t* addr, uint64_t value)
+	{
+		asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(addr), "l"(value));
+	}
+
+	__device__ __forceinline__ uint32_t CountBitsBelow(uint32_t x, uint32_t i)
+	{
+		uint32_t mask = (1u << i) - 1;
+		return __popc(x & mask);
+	}
+	__device__ __forceinline__ void Auction(float cost[8][8], float maxCost, uint32_t n, uint32_t assignments[8])
+	{
+		float prices[8];
+		uint32_t bidders[8];
+
+		for (uint32_t i = 0; i < 8; i++)
+			prices[i] = 0.0f;
+
+		// Initialize epsilon, see p.260 of https://web.mit.edu/dimitrib/www/netbook_Full_Book_NEW.pdf
+		// and p.13 of https://www.math.purdue.edu/~jacob225/papers/auction_revised.pdf
+		float threshold = 1.0f / n;
+		float epsilon = fmaxf(maxCost, threshold);
+
+		uint32_t iterCount = 0;
+		while (true)
+		{
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				assignments[i] = INVALID_IDX;
+				bidders[i] = i;
+			}
+
+			uint32_t bidderCount = n;
+
+			while (bidderCount > 0)
+			{
+				uint32_t c = bidders[--bidderCount];
+				float winningReward = -FLT_MAX;
+				float secondWinningReward = -FLT_MAX;
+				uint32_t winningSlot = INVALID_IDX;
+				uint32_t secondWinningSlot = INVALID_IDX;
+
+				for (uint32_t s = 0; s < 8; s++)
+				{
+					float reward = cost[c][s] - prices[s];
+					if (reward > winningReward)
+					{
+						secondWinningReward = winningReward;
+						winningReward = reward;
+						secondWinningSlot = winningSlot;
+						winningSlot = s;
+					}
+					else if (reward > secondWinningReward)
+					{
+						secondWinningReward = reward;
+						secondWinningSlot = s;
+					}
+				}
+
+				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
+
+				uint32_t previousAssignment = assignments[winningSlot];
+				assignments[winningSlot] = c;
+
+				if (previousAssignment != INVALID_IDX)
+					bidders[bidderCount++] = previousAssignment;
+
+			}
+			// Epsilon scaling
+			epsilon *= invTheta;
+
+			if (epsilon < threshold)
+				break;
+		}
+	}
+
+
 	__global__ void BuildBVH8Kernel(BVH8BuildState buildState)
 	{
 		uint32_t threadWarpId = threadIdx.x & (WARP_SIZE - 1);
@@ -75,7 +147,7 @@ namespace NXB
 			if (!laneActive)
 				continue;
 
-			// We don't want to load index pairs from L1 cache, since we want the global updated version
+			// We don't want to load index pairs from L1 cache, since we want the updated version in global break
 			uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
 			uint32_t bvh2NodeIdx = indexPair >> 32;
 			uint32_t bvh8NodeIdx = (uint32_t)indexPair;
@@ -142,13 +214,11 @@ namespace NXB
 			}
 
 
-			// Reorder children using auction algorithm
-			// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
-
 			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax) * 0.5f;
 
 			// Fill the table cost(c, s)
 			float cost[8][8];
+			float maxCost = -FLT_MAX;
 
 			for (uint32_t c = 0; c < childCount; c++)
 			{
@@ -164,57 +234,15 @@ namespace NXB
 
 					float3 centroid = (childBounds.bMin + childBounds.bMax) * 0.5f;
 					cost[c][s] = dot(centroid - parentCentroid, ds);
+					if (cost[c][s] > maxCost)
+						maxCost = cost[c][s];
 				}
 			}
 
-			float prices[8];
+			// Reorder children using auction algorithm
+			// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
 			uint32_t assignments[8];
-			uint32_t bidders[8];
-
-			for (uint32_t i = 0; i < 8; i++)
-			{
-				prices[i] = 0.0f;
-				assignments[i] = INVALID_IDX;
-				bidders[i] = i;
-			}
-
-			uint32_t bidderCount = childCount;
-			float epsilon = 1.0f / childCount;
-
-			uint32_t iterCounter = 0;
-			while (bidderCount > 0)
-			{
-				uint32_t c = bidders[--bidderCount];
-				float winningReward = -FLT_MAX;
-				float secondWinningReward = -FLT_MAX;
-				uint32_t winningSlot = INVALID_IDX;
-				uint32_t secondWinningSlot = INVALID_IDX;
-
-				for (uint32_t s = 0; s < 8; s++)
-				{
-					float reward = cost[c][s] - prices[s];
-					if (reward > winningReward)
-					{
-						secondWinningReward = winningReward;
-						winningReward = reward;
-						secondWinningSlot = winningSlot;
-						winningSlot = s;
-					}
-					else if (reward > secondWinningReward)
-					{
-						secondWinningReward = reward;
-						secondWinningSlot = s;
-					}
-				}
-
-				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
-
-				uint32_t previousAssignment = assignments[winningSlot];
-				assignments[winningSlot] = c;
-
-				if (previousAssignment != INVALID_IDX)
-					bidders[bidderCount++] = previousAssignment;
-			}
+			Auction(cost, maxCost, childCount, assignments);
 
 			uint32_t newInnerMask = 0;
 			uint32_t leafMask = 0;
@@ -233,6 +261,7 @@ namespace NXB
 			uint32_t innerCount = __popc(innerMask);
 			uint32_t leafCount = childCount - innerCount;
 
+			// Allocate new inner nodes, leaf nodes and work items
 			uint32_t childBaseIdx = atomicAdd(buildState.nodeCounter, innerCount);
 			uint32_t workBaseIdx = atomicAdd(buildState.workAllocCounter, childCount - 1);
 
@@ -240,6 +269,7 @@ namespace NXB
 			if (leafCount > 0)
 				primBaseIdx = atomicAdd(buildState.leafCounter, leafCount);
 
+			// Add new work in the index pair list
 			for (uint32_t i = 0; i < 8; i++)
 			{
 				if (assignments[i] == INVALID_IDX)
@@ -257,9 +287,10 @@ namespace NXB
 				GlobalStore(&buildState.indexPairs[idx], pair);
 			}
 
+			// Create the new BVH8 node
 			BVH8::NodeExplicit bvh8Node;
-			float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
 
+			float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
 			bvh8Node.p = bvh2Node.bounds.bMin;
 			bvh8Node.e[0] = CeilLog2(diagonal.x * scale);
 			bvh8Node.e[1] = CeilLog2(diagonal.y * scale);
@@ -278,12 +309,14 @@ namespace NXB
 
 				if (innerMask & (1 << i))
 				{
+					// Inner node
 					bvh8Node.imask |= 1 << i;
 					bvh8Node.meta[i] |= 1 << 5;
 					bvh8Node.meta[i] |= 24 + i;
 				}
 				else if (childIdx != INVALID_IDX)
 				{
+					//  Leaf node
 					bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(leafMask, i);
 				}
 				else
