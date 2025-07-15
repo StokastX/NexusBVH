@@ -76,8 +76,7 @@ namespace NXB
 				continue;
 
 			// We don't want to load index pairs from L1 cache, since we want the global updated version
-			//uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
-			uint64_t indexPair = buildState.indexPairs[workId];
+			uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
 			uint32_t bvh2NodeIdx = indexPair >> 32;
 			uint32_t bvh8NodeIdx = (uint32_t)indexPair;
 
@@ -171,13 +170,6 @@ namespace NXB
 			float prices[8];
 			uint32_t assignments[8];
 			uint32_t bidders[8];
-			//for (uint32_t i = 0; i < 8; i++)
-			//{
-			//	if (i < childCount)
-			//		assignments[i] = i;
-			//	else
-			//		assignments[i] = INVALID_IDX;
-			//}
 
 			for (uint32_t i = 0; i < 8; i++)
 			{
@@ -225,10 +217,15 @@ namespace NXB
 			}
 
 			uint32_t newInnerMask = 0;
+			uint32_t leafMask = 0;
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				uint32_t bit = assignments[i] == INVALID_IDX ? 0 : (innerMask >> assignments[i]) & 1;
-				newInnerMask |= (bit << i);
+				if (assignments[i] == INVALID_IDX)
+					continue;
+
+				bool bit = (innerMask >> assignments[i]) & 1;
+				newInnerMask |= (uint32_t)bit << i;
+				leafMask |= (uint32_t)(!bit) << i;
 			}
 			innerMask = newInnerMask;
 
@@ -243,7 +240,6 @@ namespace NXB
 			if (leafCount > 0)
 				primBaseIdx = atomicAdd(buildState.leafCounter, leafCount);
 
-			uint32_t c = 0;
 			for (uint32_t i = 0; i < 8; i++)
 			{
 				if (assignments[i] == INVALID_IDX)
@@ -253,12 +249,12 @@ namespace NXB
 				if (innerMask & (1 << i))
 					pair |= childBaseIdx + CountBitsBelow(innerMask, i);
 				else
-					pair |= primBaseIdx + CountBitsBelow(~innerMask, i);
+					pair |= primBaseIdx + CountBitsBelow(leafMask, i);
 
+
+				uint32_t c = CountBitsBelow(innerMask | leafMask, i);
 				uint32_t idx = c == 0 ? workId : workBaseIdx + c - 1;
-				//GlobalStore(&buildState.indexPairs[idx], pair);
-				buildState.indexPairs[idx] = pair;
-				c++;
+				GlobalStore(&buildState.indexPairs[idx], pair);
 			}
 
 			BVH8::NodeExplicit bvh8Node;
@@ -288,7 +284,7 @@ namespace NXB
 				}
 				else if (childIdx != INVALID_IDX)
 				{
-					bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(~innerMask, i);
+					bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(leafMask, i);
 				}
 				else
 					continue;
