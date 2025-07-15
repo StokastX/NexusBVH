@@ -197,7 +197,7 @@ namespace NXB
 		CudaMemory::MemsetAsync(buildState.workCounter, 0, sizeof(uint32_t));
 		CudaMemory::MemsetAsync(buildState.leafCounter, 0, sizeof(uint32_t));
 
-		uint32_t blockSize = 64;
+		uint32_t blockSize = 256;
 		uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
 		void* args[1] = { &buildState };
 

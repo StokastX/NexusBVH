@@ -1,5 +1,6 @@
 #include "WideConverter.h"
 #include "BuilderUtils.h"
+#include <float.h>
 #include <device_launch_parameters.h>
 
 #define NQ 8
@@ -55,13 +56,28 @@ namespace NXB
 
 		workId = __shfl_sync(FULL_MASK, workId, 0) + threadWarpId;
 
-		if (workId >= buildState.primCount)
-			return;
+		// The kernel is launched with enough threads to process primCount work items (as in the paper)
+		// I've tried another approach with just enough threads to fill the GPU and fetching new work dynamically,
+		// but this results in longer build times likely because threads in a warp finish at about the same time and
+		// cache coherency is better without it
+		bool laneActive = workId < buildState.primCount;
 
 		while (true)
 		{
+			// Synchronization to prevent threads that have not yet been assigned work from looping indefinitely and stealing the work
+			// of active threads in a block. I'm not sure that this is flawless since inactive blocks could still starve the GPU and prevent
+			// active ones from doing useful work. Maybe using dynamic parallelism would increase performance.
+			// If no active threads remaining in the block, exit
+			if (__syncthreads_count(laneActive) == 0)
+				break;
+
+			// If work is done, skip
+			if (!laneActive)
+				continue;
+
 			// We don't want to load index pairs from L1 cache, since we want the global updated version
-			uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
+			//uint64_t indexPair = GlobalLoad(&buildState.indexPairs[workId]);
+			uint64_t indexPair = buildState.indexPairs[workId];
 			uint32_t bvh2NodeIdx = indexPair >> 32;
 			uint32_t bvh8NodeIdx = (uint32_t)indexPair;
 
@@ -74,7 +90,8 @@ namespace NXB
 			{
 				// For now, a leaf only contains one triangle
 				buildState.primIdx[bvh8NodeIdx] = bvh2Nodes[bvh2NodeIdx].rightChild;
-				break;
+				laneActive = false;
+				continue;
 			}
 
 			// Mask to know which of the children are inner nodes
@@ -125,27 +142,6 @@ namespace NXB
 				leftRightChild[1] = bvh2Nodes[newIdx].rightChild;
 			}
 
-			uint32_t innerCount = __popc(innerMask);
-			uint32_t leafCount = childCount - innerCount;
-
-			uint32_t childBaseIdx = atomicAdd(buildState.nodeCounter, innerCount);
-			uint32_t workBaseIdx = atomicAdd(buildState.workAllocCounter, childCount - 1);
-
-			uint32_t primBaseIdx = 0;
-			if (leafCount > 0)
-				primBaseIdx = atomicAdd(buildState.leafCounter, leafCount);
-
-			for (uint32_t i = 0; i < childCount; i++)
-			{
-				uint64_t pair = (uint64_t)childNodes[i] << 32;
-				if (innerMask & (1 << i))
-					pair |= childBaseIdx + CountBitsBelow(innerMask, i);
-				else
-					pair |= primBaseIdx + CountBitsBelow(~innerMask, i);
-
-				uint32_t idx = i == 0 ? workId : workBaseIdx + i - 1;
-				GlobalStore(&buildState.indexPairs[idx], pair);
-			}
 
 			// Reorder children using auction algorithm
 			// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
@@ -157,9 +153,6 @@ namespace NXB
 
 			for (uint32_t c = 0; c < childCount; c++)
 			{
-				// If no more children, break
-				//if (childNodes[c] == -1)
-				//	break;
 				AABB childBounds = bvh2Nodes[childNodes[c]].bounds;
 
 				for (int s = 0; s < 8; s++)
@@ -178,58 +171,58 @@ namespace NXB
 			float prices[8];
 			uint32_t assignments[8];
 			uint32_t bidders[8];
-			for (uint32_t i = 0; i < 8; i++)
-			{
-				if (i < childCount)
-					assignments[i] = i;
-				else
-					assignments[i] = INVALID_IDX;
-			}
-			assignments[1] = 0;
-			assignments[0] = 1;
 			//for (uint32_t i = 0; i < 8; i++)
 			//{
-			//	prices[i] = 0.0f;
-			//	assignments[i] = INVALID_IDX;
-			//	bidders[i] = i;
+			//	if (i < childCount)
+			//		assignments[i] = i;
+			//	else
+			//		assignments[i] = INVALID_IDX;
 			//}
 
-			//uint32_t bidderCount = childCount;
-			//float epsilon = 1.0f / childCount;
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				prices[i] = 0.0f;
+				assignments[i] = INVALID_IDX;
+				bidders[i] = i;
+			}
 
-			//while (bidderCount > 0)
-			//{
-			//	uint32_t c = bidders[--bidderCount];
-			//	float winningReward = -FLT_MAX;
-			//	float secondWinningReward = -FLT_MAX;
-			//	uint32_t winningSlot = INVALID_IDX;
-			//	uint32_t secondWinningSlot = INVALID_IDX;
+			uint32_t bidderCount = childCount;
+			float epsilon = 1.0f / childCount;
 
-			//	for (uint32_t s = 0; s < 8; s++)
-			//	{
-			//		float reward = cost[c][s] - prices[s];
-			//		if (reward > winningReward)
-			//		{
-			//			winningReward = reward;
-			//			secondWinningReward = winningReward;
-			//			winningSlot = s;
-			//			secondWinningSlot = winningSlot;
-			//		}
-			//		else if (reward > secondWinningReward)
-			//		{
-			//			secondWinningReward = reward;
-			//			secondWinningSlot = s;
-			//		}
-			//	}
+			uint32_t iterCounter = 0;
+			while (bidderCount > 0)
+			{
+				uint32_t c = bidders[--bidderCount];
+				float winningReward = -FLT_MAX;
+				float secondWinningReward = -FLT_MAX;
+				uint32_t winningSlot = INVALID_IDX;
+				uint32_t secondWinningSlot = INVALID_IDX;
 
-			//	prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
+				for (uint32_t s = 0; s < 8; s++)
+				{
+					float reward = cost[c][s] - prices[s];
+					if (reward > winningReward)
+					{
+						secondWinningReward = winningReward;
+						winningReward = reward;
+						secondWinningSlot = winningSlot;
+						winningSlot = s;
+					}
+					else if (reward > secondWinningReward)
+					{
+						secondWinningReward = reward;
+						secondWinningSlot = s;
+					}
+				}
 
-			//	uint32_t previousAssignment = assignments[winningSlot];
-			//	assignments[winningSlot] = c;
+				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
 
-			//	if (previousAssignment != INVALID_IDX)
-			//		bidders[bidderCount++] = previousAssignment;
-			//}
+				uint32_t previousAssignment = assignments[winningSlot];
+				assignments[winningSlot] = c;
+
+				if (previousAssignment != INVALID_IDX)
+					bidders[bidderCount++] = previousAssignment;
+			}
 
 			uint32_t newInnerMask = 0;
 			for (uint32_t i = 0; i < 8; i++)
@@ -238,6 +231,35 @@ namespace NXB
 				newInnerMask |= (bit << i);
 			}
 			innerMask = newInnerMask;
+
+
+			uint32_t innerCount = __popc(innerMask);
+			uint32_t leafCount = childCount - innerCount;
+
+			uint32_t childBaseIdx = atomicAdd(buildState.nodeCounter, innerCount);
+			uint32_t workBaseIdx = atomicAdd(buildState.workAllocCounter, childCount - 1);
+
+			uint32_t primBaseIdx = 0;
+			if (leafCount > 0)
+				primBaseIdx = atomicAdd(buildState.leafCounter, leafCount);
+
+			uint32_t c = 0;
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				if (assignments[i] == INVALID_IDX)
+					continue;
+
+				uint64_t pair = (uint64_t)childNodes[assignments[i]] << 32;
+				if (innerMask & (1 << i))
+					pair |= childBaseIdx + CountBitsBelow(innerMask, i);
+				else
+					pair |= primBaseIdx + CountBitsBelow(~innerMask, i);
+
+				uint32_t idx = c == 0 ? workId : workBaseIdx + c - 1;
+				//GlobalStore(&buildState.indexPairs[idx], pair);
+				buildState.indexPairs[idx] = pair;
+				c++;
+			}
 
 			BVH8::NodeExplicit bvh8Node;
 			float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
