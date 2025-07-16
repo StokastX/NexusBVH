@@ -2,12 +2,15 @@
 #include "BuilderUtils.h"
 #include <float.h>
 #include <device_launch_parameters.h>
+#include <cuda_fp16.h>
+
+#define INVALID_ASSIGNMENT 0xf
 
 // Quantization scale
 #define NQ 8
 
 // Factor used in epsilon scaling for the auction algorithm
-#define THETA 10
+#define THETA 8
 
 using byte = unsigned char;
 constexpr float scale = 1.0f / ((float)(1 << NQ) - 1);
@@ -48,12 +51,24 @@ namespace NXB
 		return __popc(x & mask);
 	}
 
+	// Get nibble (yes, a half-byte is called a nibble) at index i, where i is between 0 and 7
+	__device__ __forceinline__ uint32_t GetNibble(uint32_t x, uint32_t i)
+	{
+		return (x >> (4 * i)) & 0xf;
+	}
+
+	__device__ __forceinline__ uint32_t SetNibble(uint32_t& x, uint32_t i, uint32_t value)
+	{
+		x &= ~(0xf << (4 * i));
+		x |= value << (4 * i);
+	}
+
 	// Auction algorithm
 	// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
-	__device__ __forceinline__ void Auction(float cost[8][8], float maxCost, uint32_t n, uint32_t assignments[8])
+	__device__ __forceinline__ void Auction(__half* costs, float maxCost, uint32_t n, uint32_t& assignments)
 	{
 		float prices[8];
-		uint32_t bidders[8];
+		uint32_t bidders;
 
 		for (uint32_t i = 0; i < 8; i++)
 			prices[i] = 0.0f;
@@ -64,19 +79,17 @@ namespace NXB
 		float epsilon = fmaxf(maxCost, threshold);
 
 		uint32_t iterCount = 0;
-		while (true)
+		while (epsilon >= threshold)
 		{
-			for (uint32_t i = 0; i < 8; i++)
-			{
-				assignments[i] = INVALID_IDX;
-				bidders[i] = i;
-			}
-
+			// Reset assignments
+			assignments = INVALID_IDX;
+			// Reset bidders with slots ranging from 0 to 7
+			bidders = 0x76543210;
 			uint32_t bidderCount = n;
 
 			while (bidderCount > 0)
 			{
-				uint32_t c = bidders[--bidderCount];
+				uint32_t c = GetNibble(bidders, --bidderCount);
 				float winningReward = -FLT_MAX;
 				float secondWinningReward = -FLT_MAX;
 				uint32_t winningSlot = INVALID_IDX;
@@ -84,7 +97,7 @@ namespace NXB
 
 				for (uint32_t s = 0; s < 8; s++)
 				{
-					float reward = cost[c][s] - prices[s];
+					float reward = __half2float(costs[c * 8 + s]) - prices[s];
 					if (reward > winningReward)
 					{
 						secondWinningReward = winningReward;
@@ -101,18 +114,83 @@ namespace NXB
 
 				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
 
-				uint32_t previousAssignment = assignments[winningSlot];
-				assignments[winningSlot] = c;
+				uint32_t previousAssignment = GetNibble(assignments, winningSlot);
+				SetNibble(assignments, winningSlot, c);
 
-				if (previousAssignment != INVALID_IDX)
-					bidders[bidderCount++] = previousAssignment;
-
+				if (previousAssignment != INVALID_ASSIGNMENT)
+					SetNibble(bidders, bidderCount++, previousAssignment);
 			}
 			// Epsilon scaling
 			epsilon *= invTheta;
+		}
+	}
 
-			if (epsilon < threshold)
-				break;
+
+	__device__ __forceinline__ BVH8::Node CreateBVH8Node(
+		AABB bounds, uint32_t childNodes[8], uint32_t childBaseIdx, uint32_t primBaseIdx,
+		uint32_t assignments, uint32_t innerMask, uint32_t leafMask, BVH8BuildState buildState)
+	{
+		BVH8::NodeExplicit bvh8Node;
+
+		float3 diagonal = bounds.bMax - bounds.bMin;
+		bvh8Node.p = bounds.bMin;
+		bvh8Node.e[0] = CeilLog2(diagonal.x * scale);
+		bvh8Node.e[1] = CeilLog2(diagonal.y * scale);
+		bvh8Node.e[2] = CeilLog2(diagonal.z * scale);
+		bvh8Node.imask = 0;
+
+		bvh8Node.childBaseIdx = childBaseIdx;
+		bvh8Node.primBaseIdx = primBaseIdx;
+
+		float3 invE = make_float3(InvPow2(bvh8Node.e[0]), InvPow2(bvh8Node.e[1]), InvPow2(bvh8Node.e[2]));
+
+		for (uint32_t i = 0; i < 8; i++)
+		{
+			bvh8Node.meta[i] = 0;
+			uint32_t assignment = GetNibble(assignments, i);
+
+			if (innerMask & (1 << i))
+			{
+				// Inner node
+				bvh8Node.imask |= 1 << i;
+				bvh8Node.meta[i] |= 1 << 5;
+				bvh8Node.meta[i] |= 24 + i;
+			}
+			else if (assignment != INVALID_ASSIGNMENT)
+			{
+				//  Leaf node
+				bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(leafMask, i);
+			}
+			else
+				continue;
+
+			AABB childBounds = buildState.bvh2Nodes[childNodes[assignment]].bounds;
+			bvh8Node.qlox[i] = (byte)floorf((childBounds.bMin.x - bounds.bMin.x) * invE.x);
+			bvh8Node.qloy[i] = (byte)floorf((childBounds.bMin.y - bounds.bMin.y) * invE.y);
+			bvh8Node.qloz[i] = (byte)floorf((childBounds.bMin.z - bounds.bMin.z) * invE.z);
+
+			bvh8Node.qhix[i] = (byte)ceilf((childBounds.bMax.x - bounds.bMin.x) * invE.x);
+			bvh8Node.qhiy[i] = (byte)ceilf((childBounds.bMax.y - bounds.bMin.y) * invE.y);
+			bvh8Node.qhiz[i] = (byte)ceilf((childBounds.bMax.z - bounds.bMin.z) * invE.z);
+		}
+
+		BVH8::Node node = *(BVH8::Node*)&bvh8Node;
+		return node;
+	}
+
+
+	__device__ inline void CreateBVH8SingleLeaf(uint32_t workId, BVH8BuildState buildState)
+	{
+		if (workId == 0)
+		{
+			uint32_t childNodes[8];
+			childNodes[0] = 0;
+			uint32_t assignments = 0xfffffff0;
+			BVH2::Node bvh2Node = buildState.bvh2Nodes[0];
+			atomicAdd(buildState.leafCounter, 1);
+			buildState.primIdx[0] = 0;
+
+			buildState.bvh8Nodes[0] = CreateBVH8Node(bvh2Node.bounds, childNodes, 0, 0, assignments, 0x0, 0x1, buildState);
 		}
 	}
 
@@ -130,6 +208,14 @@ namespace NXB
 			workId = atomicAdd(buildState.workCounter, WARP_SIZE);
 
 		workId = __shfl_sync(FULL_MASK, workId, 0) + threadWarpId;
+
+		// If the BVH2 only consists of a single leaf node, the algorithm doesn't work.
+		// I did not find a better way to handle this frustrating case
+		if (buildState.primCount == 1)
+		{
+			CreateBVH8SingleLeaf(workId, buildState);
+			return;
+		}
 
 		// The kernel is launched with enough threads to process primCount work items (as in the paper)
 		// I've tried another approach with just enough threads to fill the GPU and fetching new work dynamically,
@@ -220,14 +306,16 @@ namespace NXB
 			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax) * 0.5f;
 
 			// Fill the table cost(c, s)
-			float cost[8][8];
 			float maxCost = -FLT_MAX;
+			// We store the cost table as 64 half-precision floats to reduce register usage
+			__half2 costs2[32];
+			__half* costs = (__half*)costs2;
 
 			for (uint32_t c = 0; c < childCount; c++)
 			{
 				AABB childBounds = bvh2Nodes[childNodes[c]].bounds;
 
-				for (int s = 0; s < 8; s++)
+				for (uint32_t s = 0; s < 8; s++)
 				{
 					// Ray direction
 					float dsx = (s & 0b100) ? -1.0f : 1.0f;
@@ -236,24 +324,28 @@ namespace NXB
 					float3 ds = make_float3(dsx, dsy, dsz);
 
 					float3 centroid = (childBounds.bMin + childBounds.bMax) * 0.5f;
-					cost[c][s] = dot(centroid - parentCentroid, ds);
-					if (cost[c][s] > maxCost)
-						maxCost = cost[c][s];
+
+					// Since auction is a maximization algorithm, the cost function has an opposite sign to that of the BVH8 paper
+					float cost = dot(parentCentroid - centroid, ds);
+
+					costs[c * 8 + s] = cost;
+					if (cost > maxCost)
+						maxCost = cost;
 				}
 			}
 
 			// Reorder children using auction algorithm
-			uint32_t assignments[8];
-			Auction(cost, maxCost, childCount, assignments);
+			uint32_t assignments;
+			Auction(costs, maxCost, childCount, assignments);
 
 			uint32_t newInnerMask = 0;
 			uint32_t leafMask = 0;
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				if (assignments[i] == INVALID_IDX)
+				if (GetNibble(assignments, i) == INVALID_ASSIGNMENT)
 					continue;
 
-				bool bit = (innerMask >> assignments[i]) & 1;
+				bool bit = (innerMask >> GetNibble(assignments, i)) & 1;
 				newInnerMask |= (uint32_t)bit << i;
 				leafMask |= (uint32_t)(!bit) << i;
 			}
@@ -274,10 +366,10 @@ namespace NXB
 			// Add new work in the index pair list
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				if (assignments[i] == INVALID_IDX)
+				if (GetNibble(assignments, i) == INVALID_ASSIGNMENT)
 					continue;
 
-				uint64_t pair = (uint64_t)childNodes[assignments[i]] << 32;
+				uint64_t pair = (uint64_t)childNodes[GetNibble(assignments, i)] << 32;
 				if (innerMask & (1 << i))
 					pair |= childBaseIdx + CountBitsBelow(innerMask, i);
 				else
@@ -289,52 +381,8 @@ namespace NXB
 				GlobalStore(&buildState.indexPairs[idx], pair);
 			}
 
-			// Create the new BVH8 node
-			BVH8::NodeExplicit bvh8Node;
-
-			float3 diagonal = bvh2Node.bounds.bMax - bvh2Node.bounds.bMin;
-			bvh8Node.p = bvh2Node.bounds.bMin;
-			bvh8Node.e[0] = CeilLog2(diagonal.x * scale);
-			bvh8Node.e[1] = CeilLog2(diagonal.y * scale);
-			bvh8Node.e[2] = CeilLog2(diagonal.z * scale);
-			bvh8Node.imask = 0;
-
-			bvh8Node.childBaseIdx = childBaseIdx;
-			bvh8Node.primBaseIdx = primBaseIdx;
-
-			float3 invE = make_float3(InvPow2(bvh8Node.e[0]), InvPow2(bvh8Node.e[1]), InvPow2(bvh8Node.e[2]));
-
-			for (uint32_t i = 0; i < 8; i++)
-			{
-				bvh8Node.meta[i] = 0;
-				uint32_t childIdx = assignments[i];
-
-				if (innerMask & (1 << i))
-				{
-					// Inner node
-					bvh8Node.imask |= 1 << i;
-					bvh8Node.meta[i] |= 1 << 5;
-					bvh8Node.meta[i] |= 24 + i;
-				}
-				else if (childIdx != INVALID_IDX)
-				{
-					//  Leaf node
-					bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(leafMask, i);
-				}
-				else
-					continue;
-
-				AABB childBounds = bvh2Nodes[childNodes[childIdx]].bounds;
-				bvh8Node.qlox[i] = (byte)floorf((childBounds.bMin.x - bvh2Node.bounds.bMin.x) * invE.x);
-				bvh8Node.qloy[i] = (byte)floorf((childBounds.bMin.y - bvh2Node.bounds.bMin.y) * invE.y);
-				bvh8Node.qloz[i] = (byte)floorf((childBounds.bMin.z - bvh2Node.bounds.bMin.z) * invE.z);
-
-				bvh8Node.qhix[i] = (byte)ceilf((childBounds.bMax.x - bvh2Node.bounds.bMin.x) * invE.x);
-				bvh8Node.qhiy[i] = (byte)ceilf((childBounds.bMax.y - bvh2Node.bounds.bMin.y) * invE.y);
-				bvh8Node.qhiz[i] = (byte)ceilf((childBounds.bMax.z - bvh2Node.bounds.bMin.z) * invE.z);
-			}
-
-			bvh8Nodes[bvh8NodeIdx] = *(BVH8::Node*)&bvh8Node;
+			// Create and store the new BVH8 node
+			bvh8Nodes[bvh8NodeIdx] = CreateBVH8Node(bvh2Node.bounds, childNodes, childBaseIdx, primBaseIdx, assignments, innerMask, leafMask, buildState);
 		}
 	}
 }

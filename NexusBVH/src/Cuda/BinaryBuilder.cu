@@ -30,7 +30,7 @@ namespace NXB
 	// From Ciprian Apetrei: "Fast and Simple Agglomerative LBVH Construction"
 	// See https://doi.org/10.2312/cgvc.20141206
 	template <typename McT>
-	static __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, McT* mortonCodes)
+	static __forceinline__ __device__ uint32_t FindParentId(uint32_t left, uint32_t right, uint32_t primCount, McT* mortonCodes)
 	{
 		// "primCount - 1" differing from paper here
 		if (left == 0 || (right != primCount - 1 && Delta(right, right + 1, mortonCodes) < Delta(left - 1, left, mortonCodes)))
@@ -39,7 +39,7 @@ namespace NXB
 			return left - 1;
 	}
 
-	static __device__ uint32_t LoadIndices(uint32_t start, uint32_t end, uint32_t& clusterIdx, BVH2BuildState buildState, uint32_t offset)
+	static  __forceinline__ __device__ uint32_t LoadIndices(uint32_t start, uint32_t end, uint32_t& clusterIdx, BVH2BuildState buildState, uint32_t offset)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -56,7 +56,7 @@ namespace NXB
 		return validClusterCount;
 	}
 
-	static __device__ void StoreIndices(uint32_t previousNumPrim, uint32_t clusterIdx, BVH2BuildState buildState, uint32_t lStart)
+	static __forceinline__ __device__ void StoreIndices(uint32_t previousNumPrim, uint32_t clusterIdx, BVH2BuildState buildState, uint32_t lStart)
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
@@ -143,6 +143,7 @@ namespace NXB
 				area = __float_as_uint(neighborBounds.Area());
 
 				// Update min_distance[i, i + r]
+				// uint32_t comparison is correct because both floats are positive
 				if (area < minAreaIdx.x)
 					minAreaIdx = make_uint2(area, neighborIdx);
 			}
@@ -161,7 +162,7 @@ namespace NXB
 		return minAreaIdx.y;
 	}
 
-	static __device__ void PlocMerge(uint32_t laneId, uint32_t left, uint32_t right, uint32_t split, bool final, BVH2BuildState buildState)
+	static inline __device__ void PlocMerge(uint32_t laneId, uint32_t left, uint32_t right, uint32_t split, bool final, BVH2BuildState buildState)
 	{
 		// Share current lane's LBVH node with other threads in the warp
 		uint32_t lStart = __shfl_sync(FULL_MASK, left, laneId);
