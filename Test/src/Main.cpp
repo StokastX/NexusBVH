@@ -69,7 +69,7 @@ int main(void)
 	NXB::BuildConfig buildConfig;
 	buildConfig.prioritizeSpeed = true;
 
-	NXB::BenchmarkBuild(NXB::BuildBVH2<NXB::Triangle>, 50, 100, dTriangles, TRIANGLE_COUNT, buildConfig);
+	NXB::BenchmarkBuild(NXB::BuildBVH8<NXB::Triangle>, 50, 100, dTriangles, TRIANGLE_COUNT, buildConfig);
 
 	CudaMemory::Free(dTriangles);
 
