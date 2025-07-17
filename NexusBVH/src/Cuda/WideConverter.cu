@@ -4,6 +4,7 @@
 #include <device_launch_parameters.h>
 #include <cuda_fp16.h>
 
+//#define USE_AUCTION
 #define INVALID_ASSIGNMENT 0xf
 
 // Quantization scale
@@ -76,6 +77,13 @@ namespace NXB
 			   (s & 1 ? -1.0f : 1.0f) * offset.z;
 	}
 
+	__device__ __forceinline__ float GetCost(uint32_t s, float3 offset)
+	{
+		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
+			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
+			   (s & 1 ? -1.0f : 1.0f) * offset.z;
+	}
+
 	// For debugging purposes
 	__device__ float ComputeAssignmentCost(float3 offsets[8], uint32_t assignments)
 	{
@@ -90,7 +98,7 @@ namespace NXB
 
 	// Auction algorithm
 	// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
-	__device__ __forceinline__ void Auction(float3 offsets[8], float maxCost, uint32_t n, uint32_t& assignments)
+	__device__ __forceinline__ void AuctionAssignment(float3 offsets[8], float maxCost, uint32_t n, uint32_t& assignments)
 	{
 		float prices[8];
 		for (uint32_t i = 0; i < 8; i++)
@@ -144,6 +152,57 @@ namespace NXB
 			}
 			// Epsilon scaling
 			epsilon *= invTheta;
+		}
+	}
+
+	// Greedy assignment algorithm detailed in the BVH8 paper.
+	// It's actually way faster than auction and gives similar tracing times, so I might as well stick with it.
+	__device__ __forceinline__ void GreedyAssignment(float3 parentCentroid, uint32_t childNodes[8], uint32_t n, uint32_t& assignments, BVH8BuildState buildState)
+	{
+		assignments = INVALID_IDX;
+		//uint32_t slotsAvailable = 0xff;
+
+		for (uint32_t c = 0; c < n; c++)
+		{
+			float maxCost = -FLT_MAX;
+			uint32_t bestSlot = INVALID_ASSIGNMENT;
+
+			AABB childBounds = buildState.bvh2Nodes[childNodes[c]].bounds;
+			float3 childCentroid = childBounds.bMax + childBounds.bMin;
+			float3 offset = parentCentroid - childCentroid;
+
+			for (uint32_t s = 0; s < 8; s++)
+			{
+				// If slot already assigned, skip
+				if (GetNibble(assignments, s) != INVALID_ASSIGNMENT)
+					continue;
+
+				float cost = GetCost(s, offset);
+				if (cost > maxCost)
+				{
+					maxCost = cost;
+					bestSlot = s;
+				}
+			}
+			SetNibble(assignments, bestSlot, c);
+
+			//uint32_t slotsMask = slotsAvailable;
+			//while(true)
+			//{
+			//	int32_t s = 31 - __clz(slotsMask);
+			//	if (s < 0)
+			//		break;
+
+			//	slotsMask &= ~(1 << s);
+
+			//	float cost = GetCost(c, s, offsets);
+			//	if (cost > maxCost)
+			//	{
+			//		maxCost = cost;
+			//		bestSlot = s;
+			//	}
+			//}
+			//slotsAvailable &= ~(1 << bestSlot);
 		}
 	}
 
@@ -326,6 +385,10 @@ namespace NXB
 
 			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax);
 
+			// Reorder the child nodes
+			uint32_t assignments;// = 0x76543210 | (0xffffffff << (childCount * 4));
+
+#ifdef USE_AUCTION
 			// We  want to keep the cost at the same order of magnitude, regardless of the dimensions
 			// This ensures that the auction algorithm performs consistently across iterations
 			float maxDim = fmaxf(bvh2Node.bounds.bMax - bvh2Node.bounds.bMin);
@@ -349,9 +412,11 @@ namespace NXB
 					maxCost = cost;
 			}
 
-			// Reorder children using auction algorithm
-			uint32_t assignments;// = 0x76543210 | (0xffffffff << (childCount * 4));
-			Auction(offsets, maxCost, childCount, assignments);
+			AuctionAssignment(offsets, maxCost, childCount, assignments);
+
+#else
+			GreedyAssignment(parentCentroid, childNodes, childCount, assignments, buildState);
+#endif
 
 			// Compute the new masks after reordering
 			uint32_t newInnerMask = 0;
