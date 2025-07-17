@@ -67,13 +67,32 @@ namespace NXB
 		x |= value << (4 * i);
 	}
 
+	// Compute the cost of placing child c in slot s
+	__device__ __forceinline__ float GetCost(uint32_t c, uint32_t s, float3 offsets[8])
+	{
+		float3 offset = offsets[c];
+		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
+			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
+			   (s & 1 ? -1.0f : 1.0f) * offset.z;
+	}
+
+	// For debugging purposes
+	__device__ float ComputeAssignmentCost(float3 offsets[8], uint32_t assignments)
+	{
+		float cost = 0.0f;
+		for (uint32_t s = 0; s < 8; s++)
+		{
+			if (GetNibble(assignments, s) != INVALID_ASSIGNMENT)
+				cost += GetCost(GetNibble(assignments, s), s, offsets);
+		}
+		return cost;
+	}
+
 	// Auction algorithm
 	// See https://dspace.mit.edu/bitstream/handle/1721.1/3233/P-2064-24690022.pdf
-	__device__ __forceinline__ void Auction(__half* costs, float maxCost, uint32_t n, uint32_t& assignments)
+	__device__ __forceinline__ void Auction(float3 offsets[8], float maxCost, uint32_t n, uint32_t& assignments)
 	{
 		float prices[8];
-		uint32_t bidders;
-
 		for (uint32_t i = 0; i < 8; i++)
 			prices[i] = 0.0f;
 
@@ -82,13 +101,12 @@ namespace NXB
 		float threshold = 1.0f / n;
 		float epsilon = fmaxf(maxCost, threshold);
 
-		uint32_t iterCount = 0;
 		while (epsilon >= threshold)
 		{
 			// Reset assignments
 			assignments = INVALID_IDX;
 			// Reset bidders with slots ranging from 0 to 7
-			bidders = 0x76543210;
+			uint32_t bidders = 0x76543210;
 			uint32_t bidderCount = n;
 
 			while (bidderCount > 0)
@@ -96,12 +114,12 @@ namespace NXB
 				uint32_t c = GetNibble(bidders, --bidderCount);
 				float winningReward = -FLT_MAX;
 				float secondWinningReward = -FLT_MAX;
-				uint32_t winningSlot = INVALID_IDX;
-				uint32_t secondWinningSlot = INVALID_IDX;
+				uint32_t winningSlot = INVALID_ASSIGNMENT;
+				uint32_t secondWinningSlot = INVALID_ASSIGNMENT;
 
 				for (uint32_t s = 0; s < 8; s++)
 				{
-					float reward = __half2float(costs[c * 8 + s]) - prices[s];
+					float reward = GetCost(c, s, offsets) - prices[s];
 					if (reward > winningReward)
 					{
 						secondWinningReward = winningReward;
@@ -306,44 +324,36 @@ namespace NXB
 				leftRightChild[1] = bvh2Nodes[newIdx].rightChild;
 			}
 
-			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax) * 0.5f;
+			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax);
 
 			// We  want to keep the cost at the same order of magnitude, regardless of the dimensions
 			// This ensures that the auction algorithm performs consistently across iterations
-			float costScale = MAX_COST / fmaxf(bvh2Node.bounds.bMax - bvh2Node.bounds.bMin);
+			float maxDim = fmaxf(bvh2Node.bounds.bMax - bvh2Node.bounds.bMin);
+			float costScale = maxDim == 0.0f ? 0.0f : MAX_COST / maxDim;
+			costScale *= 0.5;
 
 			// Fill the table cost(c, s)
 			float maxCost = -FLT_MAX;
-			// We store the cost table as 64 half-precision floats to reduce register usage
-			__half2 costs2[32];
-			__half* costs = (__half*)costs2;
+			float3 offsets[8];
 
 			for (uint32_t c = 0; c < childCount; c++)
 			{
 				AABB childBounds = bvh2Nodes[childNodes[c]].bounds;
-				float3 centroid = (childBounds.bMin + childBounds.bMax) * 0.5f;
+				float3 centroid = (childBounds.bMin + childBounds.bMax);
 
-				for (uint32_t s = 0; s < 8; s++)
-				{
-					// Ray direction
-					float dsx = (s & 0b100) ? -1.0f : 1.0f;
-					float dsy = (s & 0b010) ? -1.0f : 1.0f;
-					float dsz = (s & 0b001) ? -1.0f : 1.0f;
-					float3 ds = make_float3(dsx, dsy, dsz);
+				// Since auction is a maximization algorithm, the cost function has an opposite sign to that of the BVH8 paper
+				offsets[c] = (parentCentroid - centroid) * costScale;
 
-					// Since auction is a maximization algorithm, the cost function has an opposite sign to that of the BVH8 paper
-					float cost = dot(parentCentroid - centroid, ds) * costScale;
-					costs[c * 8 + s] = cost;
-
-					if (cost > maxCost)
-						maxCost = cost;
-				}
+				float cost = fabs(offsets[c].x) + fabs(offsets[c].y) + fabs(offsets[c].z);
+				if (cost > maxCost)
+					maxCost = cost;
 			}
 
 			// Reorder children using auction algorithm
-			uint32_t assignments;
-			Auction(costs, maxCost, childCount, assignments);
+			uint32_t assignments;// = 0x76543210 | (0xffffffff << (childCount * 4));
+			Auction(offsets, maxCost, childCount, assignments);
 
+			// Compute the new masks after reordering
 			uint32_t newInnerMask = 0;
 			uint32_t leafMask = 0;
 			for (uint32_t i = 0; i < 8; i++)
