@@ -10,10 +10,14 @@
 #define NQ 8
 
 // Factor used in epsilon scaling for the auction algorithm
+// A larger theta reduces the number of iterations which result in a less precise assignment
 #define THETA 8
 
+// Scaling factor that determines an order of magnitude of the maximum possible cost of all assignment table
+#define MAX_COST 10.0f
+
 using byte = unsigned char;
-constexpr float scale = 1.0f / ((float)(1 << NQ) - 1);
+constexpr float quantStep = 1.0f / ((float)(1 << NQ) - 1);
 constexpr float invTheta = 1.0f / (float)THETA;
 
 
@@ -134,9 +138,9 @@ namespace NXB
 
 		float3 diagonal = bounds.bMax - bounds.bMin;
 		bvh8Node.p = bounds.bMin;
-		bvh8Node.e[0] = CeilLog2(diagonal.x * scale);
-		bvh8Node.e[1] = CeilLog2(diagonal.y * scale);
-		bvh8Node.e[2] = CeilLog2(diagonal.z * scale);
+		bvh8Node.e[0] = CeilLog2(diagonal.x * quantStep);
+		bvh8Node.e[1] = CeilLog2(diagonal.y * quantStep);
+		bvh8Node.e[2] = CeilLog2(diagonal.z * quantStep);
 		bvh8Node.imask = 0;
 
 		bvh8Node.childBaseIdx = childBaseIdx;
@@ -302,8 +306,11 @@ namespace NXB
 				leftRightChild[1] = bvh2Nodes[newIdx].rightChild;
 			}
 
-
 			float3 parentCentroid = (bvh2Node.bounds.bMin + bvh2Node.bounds.bMax) * 0.5f;
+
+			// We  want to keep the cost at the same order of magnitude, regardless of the dimensions
+			// This ensures that the auction algorithm performs consistently across iterations
+			float costScale = MAX_COST / fmaxf(bvh2Node.bounds.bMax - bvh2Node.bounds.bMin);
 
 			// Fill the table cost(c, s)
 			float maxCost = -FLT_MAX;
@@ -314,6 +321,7 @@ namespace NXB
 			for (uint32_t c = 0; c < childCount; c++)
 			{
 				AABB childBounds = bvh2Nodes[childNodes[c]].bounds;
+				float3 centroid = (childBounds.bMin + childBounds.bMax) * 0.5f;
 
 				for (uint32_t s = 0; s < 8; s++)
 				{
@@ -323,12 +331,10 @@ namespace NXB
 					float dsz = (s & 0b001) ? -1.0f : 1.0f;
 					float3 ds = make_float3(dsx, dsy, dsz);
 
-					float3 centroid = (childBounds.bMin + childBounds.bMax) * 0.5f;
-
 					// Since auction is a maximization algorithm, the cost function has an opposite sign to that of the BVH8 paper
-					float cost = dot(parentCentroid - centroid, ds);
-
+					float cost = dot(parentCentroid - centroid, ds) * costScale;
 					costs[c * 8 + s] = cost;
+
 					if (cost > maxCost)
 						maxCost = cost;
 				}
