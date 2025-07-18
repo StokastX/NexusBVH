@@ -2,7 +2,6 @@
 #include "BuilderUtils.h"
 #include <float.h>
 #include <device_launch_parameters.h>
-#include <cuda_fp16.h>
 
 //#define USE_AUCTION
 #define INVALID_ASSIGNMENT 0xf

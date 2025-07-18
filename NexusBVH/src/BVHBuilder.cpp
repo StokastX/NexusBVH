@@ -177,7 +177,10 @@ namespace NXB
 		BVH8BuildState buildState;
 		buildState.bvh2Nodes = bvh2.nodes;
 		buildState.primCount = bvh2.primCount;
-		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(buildState.primCount);
+
+		// Worst case senario for a BVH8: node count = (4n - 1) / 7.
+		// This occurs when each internal node in the level above leaves contains only two leaf nodes
+		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(DivideRoundUp(4 * buildState.primCount - 1, 7));
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.nodeCounter = CudaMemory::AllocAsync<uint32_t>(1);
 		buildState.leafCounter = CudaMemory::AllocAsync<uint32_t>(1);
