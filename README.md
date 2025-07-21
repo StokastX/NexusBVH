@@ -1,10 +1,13 @@
 # Nexus BVH
 ![teaser9](https://github.com/user-attachments/assets/a56284f9-bfe7-49d1-b83a-6374537d7e9b)
 
-This project was developed as part of the GPU Computing course at Ensimag. The full report can be found [here](https://patrick-attimont.com/assets/documents/NXB_report.pdf).
+**NexusBVH** is a fast and high-quality GPU BVH builder written in C++ and CUDA.
 
-NexusBVH is a fast and high-quality GPU BVH builder written in C++ and CUDA.
-It implements H-PLOC [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/3675377) algorithm, focusing on high-performance and high-quality hierarchy generation.
+It implements the H-PLOC algorithm proposed by [Benthin et al. 2024](https://dl.acm.org/doi/10.1145/3675377), a high-performance BVH construction method designed for GPUs. H-PLOC constructs high-quality BVHs through hierarchical clustering of spatially nearby primitives in parallel, making it well-suited for real-time ray tracing applications.
+
+
+> 📝 *This project was originally developed as part of the GPU Computing course at Ensimag. The full report is available [here](https://patrick-attimont.com/assets/documents/NXB_report.pdf).*
+
 
 ## BVH Construction Benchmark
 
@@ -22,29 +25,40 @@ BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is perfor
 | **Lucy (28.1M)**       | 5.78         | 3.07         | 7.98                 | 22.2 | 39.03  |
 
 ## Prerequisites
+NexusBVH is a CMake-based project and requires the following dependencies:
 
-- Microsoft Visual Studio 2022
-- Nvidia [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)
-- [CMake](https://cmake.org/download/) 3.22 or higher
+- [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (from NVIDIA)
+- [CMake](https://cmake.org/download/) version 3.22 or higher
+
+The project has been tested on both **Windows** (with Visual Studio) and **Ubuntu**.
 
 ## Build
-- Clone the repository
+
+1. **Clone the repository**:
+
    ```sh
    git clone https://github.com/StokastX/NexusBVH
    ```
-- Run setup.bat to automatically generate a Visual Studio solution in the build/ directory.
 
-  Alternatively, you can generate the solution via cmake:
-  ```sh
-  mkdir build
-  cd build
-  cmake ..
-  ```
-- Open the Visual Studio solution and build the project
+2. **Generate the solution via cmake**:
+
+   ``` sh
+   mkdir build
+   cd build
+   cmake ..
+   ```
+
+3. **Build the project**:
+- On Linux: Use ```make``` on your preferred build system:
+
+   ``` sh
+   make -j
+   ```
+- On Windows (Visual Studio): Open the generated solution file in Visual Studio, and press F5 to build and run.
 
 ## Resources
 
-- H-PLOC: [\[Benthin et al. 2024\]](https://dl.acm.org/doi/10.1145/3675377)
-- PLOC++: [\[Benthin et al. 2022\]](https://dl.acm.org/doi/10.1145/3543867)
-- PLOC: [\[Meister and Bittner 2018\]](https://ieeexplore.ieee.org/document/7857089)
-- Bottom-up LBVH traversal: [\[Apetrei 2014\]](https://doi.org/10.2312/cgvc.20141206)
+- H-PLOC: [Benthin et al. 2024](https://dl.acm.org/doi/10.1145/3675377)
+- PLOC++: [Benthin et al. 2022](https://dl.acm.org/doi/10.1145/3543867)
+- PLOC: [Meister and Bittner 2018](https://ieeexplore.ieee.org/document/7857089)
+- Bottom-up LBVH traversal: [Apetrei 2014](https://doi.org/10.2312/cgvc.20141206)
