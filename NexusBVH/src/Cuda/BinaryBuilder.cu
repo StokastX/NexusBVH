@@ -75,7 +75,7 @@ namespace NXB
 
 		bool laneActive = laneWarpId < numPrim;
 
-		uint32_t nearestNeighborNN = __shfl_sync(FULL_MASK, nearestNeighbor, nearestNeighbor) & 0xffffffff;
+		uint32_t nearestNeighborNN = __shfl_sync(FULL_MASK, nearestNeighbor, nearestNeighbor);
 		bool mutualNeighbor = laneActive && laneWarpId == nearestNeighborNN;
 		bool merge = mutualNeighbor && laneWarpId < nearestNeighbor;
 

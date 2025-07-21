@@ -331,4 +331,48 @@ namespace NXB
 
 		return bounds;
 	}
+		
+	__device__ __forceinline__ uint32_t CeilLog2(float x)
+	{
+		uint32_t ix = __float_as_uint(x);
+		uint32_t exp = ((ix >> 23) & 0xFF);
+		// check if x is exactly 2^exp => mantissa bits are zero
+		bool isPow2 = (ix & ((1 << 23) - 1)) == 0;
+		return exp + !isPow2;
+	}
+
+	__device__ __forceinline__ float InvPow2(uint8_t eBiased)
+	{
+		return __uint_as_float((uint32_t)(254 - eBiased) << 23);
+	}
+
+	__device__ __forceinline__ uint64_t GlobalLoad(uint64_t* addr)
+	{
+		uint64_t value;
+		asm volatile("ld.global.cg.u64 %0, [%1];" : "=l"(value) : "l"(addr));
+		return value;
+	}
+
+	__device__ __forceinline__ void GlobalStore(uint64_t* addr, uint64_t value)
+	{
+		asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(addr), "l"(value));
+	}
+
+	__device__ __forceinline__ uint32_t CountBitsBelow(uint32_t x, uint32_t i)
+	{
+		uint32_t mask = (1u << i) - 1;
+		return __popc(x & mask);
+	}
+
+	// Get nibble (yes, a half-byte is called a nibble) at index i, where i is between 0 and 7
+	__device__ __forceinline__ uint32_t GetNibble(uint32_t x, uint32_t i)
+	{
+		return (x >> (4 * i)) & 0xf;
+	}
+
+	__device__ __forceinline__ uint32_t SetNibble(uint32_t& x, uint32_t i, uint32_t value)
+	{
+		x &= ~(0xf << (4 * i));
+		x |= value << (4 * i);
+	}
 }
