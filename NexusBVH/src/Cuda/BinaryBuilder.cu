@@ -45,7 +45,7 @@ namespace NXB
 
 		// Load up to MERGING_THRESHOLD cluster indices
 		uint32_t index = laneWarpId - offset;
-		bool validLaneId = index >= 0 && index < min(end - start, MERGING_THRESHOLD);
+		bool validLaneId = index < min(end - start, MERGING_THRESHOLD);
 
 		if (validLaneId)
 			clusterIdx = buildState.clusterIdx[start + index];
@@ -126,11 +126,11 @@ namespace NXB
 	// PLOC++ based nearest neighbor search
 	static inline __device__ uint32_t FindNearestNeighbor(uint32_t numPrim, uint32_t clusterIdx, AABB clusterBounds, BVH2BuildState buildState)
 	{
-		int32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
+		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
 		uint2 minAreaIdx = make_uint2(INVALID_IDX);
 
-		for (int32_t r = 1; r <= SEARCH_RADIUS; r++)
+		for (uint32_t r = 1; r <= SEARCH_RADIUS; r++)
 		{
 			uint32_t neighborIdx = laneWarpId + r;
 			uint32_t area = (uint32_t)(-1);
@@ -216,7 +216,7 @@ namespace NXB
 		{
 			if (laneActive)
 			{
-				int32_t previousId;
+				uint32_t previousId;
 
 				if (FindParentId(left, right, buildState.primCount, mortonCodes) == right)
 				{
@@ -224,7 +224,7 @@ namespace NXB
 					previousId = atomicExch(&buildState.parentIdx[right], left);
 
 					// If right child has already reached parent
-					if (previousId != -1)
+					if (previousId != INVALID_IDX)
 					{
 						split = right + 1;
 
@@ -239,7 +239,7 @@ namespace NXB
 					previousId = atomicExch(&buildState.parentIdx[left - 1], right);
 
 					// If left child has already reached parent
-					if (previousId != -1)
+					if (previousId != INVALID_IDX)
 					{
 						split = left;
 
@@ -250,7 +250,7 @@ namespace NXB
 				}
 
 				// Stop traversal and let the other child reach the parent
-				if (previousId == -1)
+				if (previousId == INVALID_IDX)
 					laneActive = false;
 			}
 

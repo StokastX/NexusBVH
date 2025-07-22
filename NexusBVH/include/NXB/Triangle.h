@@ -9,7 +9,7 @@ namespace NXB
 {
 	struct Triangle
 	{
-		__host__ __device__ Triangle() = default;
+		Triangle() = default;
 
 		__host__ __device__ Triangle(float3 pos0, float3 pos1, float3 pos2)
 			: v0(pos0), v1(pos1), v2(pos2) { }

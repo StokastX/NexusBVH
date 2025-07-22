@@ -6,7 +6,7 @@ namespace NXB
 {
 	struct AABB
 	{
-		__host__ __device__ AABB() = default;
+		AABB() = default;
 		__host__ __device__ AABB(float3 v0, float3 v1)
 		{
 			bMin = fminf(v0, v1);

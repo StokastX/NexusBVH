@@ -77,7 +77,6 @@ namespace NXB
 				float winningReward = -FLT_MAX;
 				float secondWinningReward = -FLT_MAX;
 				uint32_t winningSlot = INVALID_ASSIGNMENT;
-				uint32_t secondWinningSlot = INVALID_ASSIGNMENT;
 
 				for (uint32_t s = 0; s < 8; s++)
 				{
@@ -86,14 +85,10 @@ namespace NXB
 					{
 						secondWinningReward = winningReward;
 						winningReward = reward;
-						secondWinningSlot = winningSlot;
 						winningSlot = s;
 					}
 					else if (reward > secondWinningReward)
-					{
 						secondWinningReward = reward;
-						secondWinningSlot = s;
-					}
 				}
 
 				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;

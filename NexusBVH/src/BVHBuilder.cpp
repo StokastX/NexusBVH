@@ -14,13 +14,13 @@ namespace NXB
 	BVH2 BuildBVH2Impl(BVH2BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = buildState.primCount * 2 - 1;
-		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
+		buildState.parentIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
 		McT* mortonCodes = CudaMemory::AllocAsync<McT>(buildState.primCount);
 
 		// Init parent ids to -1
-		CudaMemory::MemsetAsync(buildState.parentIdx, INVALID_IDX, sizeof(int32_t) * buildState.primCount);
+		CudaMemory::MemsetAsync(buildState.parentIdx, INVALID_IDX, sizeof(uint32_t) * buildState.primCount);
 		CudaMemory::CopyAsync(buildState.clusterCount, &buildState.primCount, 1, cudaMemcpyHostToDevice);
 
 		void* args[2] = { &buildState, &mortonCodes };
@@ -254,10 +254,11 @@ namespace NXB
 			buildMetrics->averageChildPerNode = (float)(bvh8.primCount + bvh8.nodeCount - 1) / bvh8.nodeCount;
 		}
 
-		CudaMemory::FreeAsync(bvh2.nodes);
+		FreeDeviceBVH(bvh2);
 		CudaMemory::FreeAsync(buildState.nodeCounter);
 		CudaMemory::FreeAsync(buildState.leafCounter);
 		CudaMemory::FreeAsync(buildState.workCounter);
+		CudaMemory::FreeAsync(buildState.workAllocCounter);
 		CudaMemory::FreeAsync(buildState.indexPairs);
 
 		CUDA_CHECK(cudaDeviceSynchronize());

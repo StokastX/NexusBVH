@@ -370,7 +370,7 @@ namespace NXB
 		return (x >> (4 * i)) & 0xf;
 	}
 
-	__device__ __forceinline__ uint32_t SetNibble(uint32_t& x, uint32_t i, uint32_t value)
+	__device__ __forceinline__ void SetNibble(uint32_t& x, uint32_t i, uint32_t value)
 	{
 		x &= ~(0xf << (4 * i));
 		x |= value << (4 * i);
