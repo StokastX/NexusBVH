@@ -22,20 +22,17 @@ constexpr float invTheta = 1.0f / (float)THETA;
 
 namespace NXB
 {
-	// Compute the cost of placing child c in slot s
-	__device__ __forceinline__ float GetCost(uint32_t c, uint32_t s, float3 offsets[8])
-	{
-		float3 offset = offsets[c];
-		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
-			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
-			   (s & 1 ? -1.0f : 1.0f) * offset.z;
-	}
-
 	__device__ __forceinline__ float GetCost(uint32_t s, float3 offset)
 	{
 		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
 			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
 			   (s & 1 ? -1.0f : 1.0f) * offset.z;
+	}
+
+	// Compute the cost of placing child c in slot s
+	__device__ __forceinline__ float GetCost(uint32_t c, uint32_t s, float3 offsets[8])
+	{
+		return GetCost(s, offsets[c]);
 	}
 
 	// For debugging purposes

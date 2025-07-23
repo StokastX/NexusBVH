@@ -1,5 +1,6 @@
 #pragma once
 
+#include <float.h>
 #include "Math/CudaMath.h"
 
 namespace NXB
@@ -36,13 +37,13 @@ namespace NXB
 			bMax = make_float3(-FLT_MAX);
 		}
 
-		__host__ __device__ float3 Centroid()
+		__host__ __device__ float3 Centroid() const
 		{
 			return (bMin + bMax) * 0.5f;
 		}
 
 		// Returns area / 2
-		__host__ __device__ float Area()
+		__host__ __device__ float Area() const
 		{
 			float3 diff = bMax - bMin;
 			return diff.x * diff.y + diff.y * diff.z + diff.z * diff.x;
