@@ -15,14 +15,14 @@ All times are in milliseconds and represent kernel execution times measured on t
 
 BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **3x slower**.
 
-| Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort           | BVH2  | Total  |
-|------------------------|--------------|--------------|----------------------|------|--------|
-| **Sponza (0.3M)**      | 0.06         | 0.04         | 0.22                 | 0.37 | 0.68   |
-| **Buddha (1.1M)**      | 0.22         | 0.14         | 0.37                 | 1.05 | 1.78   |
-| **Hairball (2.9M)**    | 0.55         | 0.31         | 0.89                 | 2.01 | 3.86   |
-| **Bistro (3.8M)**      | 0.59         | 0.31         | 1.02                 | 2.66 | 4.58   |
-| **Powerplant (12.7M)** | 2.52         | 1.31         | 3.59                 | 8.85 | 16.27  |
-| **Lucy (28.1M)**       | 5.78         | 3.07         | 7.98                 | 22.2 | 39.03  |
+| Scene (Triangles)      | Scene Bounds | Morton Codes | Radix Sort | BVH2  | BVH8  | Total |
+|------------------------|--------------|--------------|------------|-------|-------|--------|
+| **Sponza (0.3M)**      | 0.03         | 0.01         | 0.06       | 0.20  | 0.14  | 0.44   |
+| **Buddha (1.1M)**      | 0.11         | 0.02         | 0.10       | 0.47  | 0.42  | 1.12   |
+| **Hairball (2.9M)**    | 0.29         | 0.19         | 0.20       | 0.90  | 1.36  | 2.95   |
+| **Bistro (3.9M)**      | 0.40         | 0.26         | 0.25       | 1.35  | 1.84  | 4.10   |
+| **Powerplant (12.7M)** | 1.34         | 0.84         | 1.33       | 3.67  | 5.90  | 13.09  |
+| **Lucy (28.1M)**       | 2.98         | 1.79         | 3.11       | 9.75  | 15.36 | 33.00  |
 
 ## Prerequisites
 NexusBVH is a CMake-based project and requires the following dependencies:
