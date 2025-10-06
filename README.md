@@ -11,7 +11,7 @@ It implements the H-PLOC algorithm proposed by [Benthin et al. 2024](https://dl.
 
 ## BVH Construction Benchmark
 
-All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on a **Ryzen 7 5700X, RTX 3070 8 Go.** 
+All times are in milliseconds and represent kernel execution times measured on the CPU side. Benchmarked on an **Intel Core i9-14900K, RTX 4080 SUPER.** 
 
 BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is performed using 32-bit Morton codes. When using 64-bit Morton codes, sorting time is approximately **3x slower**.
 
