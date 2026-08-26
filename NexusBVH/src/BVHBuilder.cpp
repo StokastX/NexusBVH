@@ -92,13 +92,16 @@ namespace NXB
 		if (buildMetrics)
 		{
 			float* cost = CudaMemory::AllocAsync<float>(1);
-			CudaMemory::MemsetAsync(cost, 0, 1);
+			CudaMemory::MemsetAsync(cost, 0, sizeof(float));
 			void* args[2] = { &bvh, &cost };
 			uint32_t gridSize = DivideRoundUp(nodeCount, blockSize);
 
 			CUDA_CHECK(cudaLaunchKernel(ComputeBVHCostKernel, gridSize, blockSize, args, 0, 0));
 
 			CudaMemory::CopyAsync(&buildMetrics->bvhCost, cost, 1, cudaMemcpyDeviceToHost);
+
+			// Same stream as the copy above, so the free is ordered after it
+			CudaMemory::FreeAsync(cost);
 		}
 
 		CudaMemory::FreeAsync(buildState.parentIdx);
@@ -114,6 +117,18 @@ namespace NXB
 	BVH2 BuildBVH2(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		BVH2 bvh;
+
+		// Without this guard, primCount * 2 - 1 underflows to 0xFFFFFFFF and the
+		// allocation below fails inside CUDA_CHECK, which exits the process.
+		if (primCount == 0)
+		{
+			bvh.nodes = nullptr;
+			bvh.nodeCount = 0;
+			bvh.primCount = 0;
+			bvh.bounds.Clear();
+			return bvh;
+		}
+
 		uint32_t nodeCount = primCount * 2 - 1;
 		BVH2BuildState buildState;
 		buildState.primCount = primCount;
@@ -172,6 +187,17 @@ namespace NXB
 	template <typename PrimT>
 	BVH8 BuildBVH8(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
+		if (primCount == 0)
+		{
+			BVH8 bvh8;
+			bvh8.nodes = nullptr;
+			bvh8.nodeCount = 0;
+			bvh8.primIdx = nullptr;
+			bvh8.primCount = 0;
+			bvh8.bounds.Clear();
+			return bvh8;
+		}
+
 		BVH2 bvh2 = BuildBVH2<PrimT>(primitives, primCount, buildConfig, buildMetrics);
 
 		BVH8BuildState buildState;
@@ -237,6 +263,7 @@ namespace NXB
 		CudaMemory::FreeAsync(buildState.nodeCounter);
 		CudaMemory::FreeAsync(buildState.leafCounter);
 		CudaMemory::FreeAsync(buildState.workCounter);
+		CudaMemory::FreeAsync(buildState.workAllocCounter);
 		CudaMemory::FreeAsync(buildState.indexPairs);
 
 		CUDA_CHECK(cudaDeviceSynchronize());

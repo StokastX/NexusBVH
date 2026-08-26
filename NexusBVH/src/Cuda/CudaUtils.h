@@ -76,7 +76,7 @@ namespace NXB
 		{
 			int32_t blocksPerSM;
 			cudaDeviceProp properties;
-			cudaGetDeviceProperties(&properties, 0);
+			CUDA_CHECK(cudaGetDeviceProperties(&properties, 0));
 			CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocksPerSM, func, blockSize, 0));
 			uint32_t gridSize = blocksPerSM * properties.multiProcessorCount;
 			return gridSize;

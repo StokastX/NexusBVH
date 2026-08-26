@@ -43,6 +43,14 @@ target_include_directories(NexusBVH
         src
 )
 
+# CCCL (shipped with CUDA 13.x) hard-errors under MSVC's traditional preprocessor.
+# nvcc drives cl.exe as the host compiler, so the flag has to go through -Xcompiler.
+if (MSVC)
+	target_compile_options(NexusBVH PRIVATE
+		$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+	)
+endif()
+
 # CUDA optimizations
 target_compile_options(NexusBVH PRIVATE
   $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:

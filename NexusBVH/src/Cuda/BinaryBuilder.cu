@@ -43,9 +43,11 @@ namespace NXB
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		// Load up to MERGING_THRESHOLD cluster indices
+		// Load up to MERGING_THRESHOLD cluster indices.
+		// Lanes below the offset underflow to a very large value on purpose: the
+		// unsigned comparison below then rejects them.
 		uint32_t index = laneWarpId - offset;
-		bool validLaneId = index >= 0 && index < min(end - start, MERGING_THRESHOLD);
+		bool validLaneId = index < min(end - start, MERGING_THRESHOLD);
 
 		if (validLaneId)
 			clusterIdx = buildState.clusterIdx[start + index];
@@ -90,8 +92,10 @@ namespace NXB
 		// Share baseIdx with warp
 		baseIdx = __shfl_sync(FULL_MASK, baseIdx, 0);
 
-		// Number of merging lanes with indices less than laneWarpId
-		uint32_t relativeIdx = __popc(mergeMask << (WARP_SIZE - laneWarpId));
+		// Number of merging lanes with indices less than laneWarpId.
+		// Masking is used rather than "mergeMask << (WARP_SIZE - laneWarpId)", which
+		// shifts by 32 for lane 0: UB in C++, even though CUDA clamps it to 0.
+		uint32_t relativeIdx = __popc(mergeMask & ((1u << laneWarpId) - 1u));
 
 		uint32_t neighborClusterIdx = __shfl_sync(FULL_MASK, clusterIdx, nearestNeighbor);
 		AABB neighborBounds = shfl_sync(FULL_MASK, clusterBounds, nearestNeighbor);

@@ -61,7 +61,7 @@ namespace NXB
 		return (x >> (4 * i)) & 0xf;
 	}
 
-	__device__ __forceinline__ uint32_t SetNibble(uint32_t& x, uint32_t i, uint32_t value)
+	__device__ __forceinline__ void SetNibble(uint32_t& x, uint32_t i, uint32_t value)
 	{
 		x &= ~(0xf << (4 * i));
 		x |= value << (4 * i);
@@ -242,7 +242,13 @@ namespace NXB
 				bvh8Node.meta[i] |= (1 << 5) | CountBitsBelow(leafMask, i);
 			}
 			else
+			{
+				// Unused slot. meta[i] == 0 already makes traversal skip it, but the
+				// quantized bounds would otherwise be left as uninitialized stack.
+				bvh8Node.qlox[i] = bvh8Node.qloy[i] = bvh8Node.qloz[i] = 0xff;
+				bvh8Node.qhix[i] = bvh8Node.qhiy[i] = bvh8Node.qhiz[i] = 0x00;
 				continue;
+			}
 
 			AABB childBounds = buildState.bvh2Nodes[childNodes[assignment]].bounds;
 			bvh8Node.qlox[i] = (byte)floorf((childBounds.bMin.x - bounds.bMin.x) * invE.x);
@@ -282,7 +288,27 @@ namespace NXB
 		BVH8::Node* bvh8Nodes = buildState.bvh8Nodes;
 
 		// NOTE: CUDA does not guarantee that thread blocks are executed in order (i.e. block 0 is executed first)
-		// so we have to use atomic counters to assign work ids between threads
+		// so we have to use atomic counters to assign work ids between threads.
+		//
+		// This kernel spins on work produced by *other* blocks, with a grid (n/256 blocks) far larger
+		// than what is resident, so it is only deadlock-free because of the invariant below. Read this
+		// before changing anything about how work is distributed.
+		//
+		//   (1) A thread only ever waits on indexPairs[workId], i.e. on its own slot. It never polls
+		//       a slot belonging to another thread.
+		//   (2) workId comes from an atomic, so it is handed out in *execution* order. A thread must be
+		//       resident to run the atomicAdd, so every outstanding work id belongs to a block that is
+		//       resident or has already retired. Blocks that have not launched yet hold no work ids and
+		//       nobody is waiting on them. (with workId = blockIdx * blockDim + threadIdx, slot 0 could
+		//       be owned by a block that never gets scheduled, and the whole grid would hang.)
+		//   (3) workAllocCounter is monotonic and a producer always allocates strictly above its own
+		//       index (its own slot was allocated before it ran), so slot i is always written by a thread
+		//       holding some slot p < i.
+		//
+		// Breaks the invariant: recycling/reusing slots, deriving workId from blockIdx again, letting a
+		// thread wait on a slot it does not own (work stealing, dynamic fetch), or any producer that can
+		// write below its own index.
+
 		uint32_t workId;
 		if (threadWarpId == 0)
 			workId = atomicAdd(buildState.workCounter, WARP_SIZE);
@@ -305,10 +331,11 @@ namespace NXB
 
 		while (true)
 		{
-			// Synchronization to prevent threads that have not yet been assigned work from looping indefinitely and stealing the work
-			// of active threads in a block. I'm not sure that this is flawless since inactive blocks could still starve the GPU and prevent
-			// active ones from doing useful work. Maybe using dynamic parallelism would increase performance.
-			// If no active threads remaining in the block, exit
+			// If no active threads remaining in the block, exit.
+			// The spin lives here, at block scope, rather than as a per-lane "while (!ready);" inner loop.
+			// That matters: a per-lane spin would hang on pre-Volta hardware, where a warp has a single PC
+			// and the waiting lanes would never yield to the lanes holding the work they wait on.
+			// See the invariant at the top of the kernel for why this terminates.
 			if (__syncthreads_count(laneActive) == 0)
 				break;
 
