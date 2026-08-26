@@ -18,7 +18,7 @@ namespace NXB
 		uint32_t* clusterIdx;
 
 		// BVH2 parent indices
-		int32_t* parentIdx;
+		uint32_t* parentIdx;
 
 		// Number of primitives
 		uint32_t primCount;

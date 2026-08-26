@@ -23,12 +23,9 @@ namespace NXB
 	__global__ void ComputeMortonCodesKernel(BVH2BuildState buildState, McT* mortonCodes);
 
 	/*
-	 * \brief Performs one sweep radix sort for 32-bit Morton codes
+	 * \brief Performs one sweep radix sort for Morton codes (keys) and cluster indices (values)
 	 */
-	void RadixSort(BVH2BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	template <typename McT>
+	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, BVHBuildMetrics* buildMetrics);
 
-	/*
-	 * \brief Performs one sweep radix sort for 64-bit Morton codes
-	 */
-	void RadixSort(BVH2BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 }

@@ -14,13 +14,13 @@ namespace NXB
 	BVH2 BuildBVH2Impl(BVH2BuildState buildState, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		uint32_t nodeCount = buildState.primCount * 2 - 1;
-		buildState.parentIdx = CudaMemory::AllocAsync<int32_t>(buildState.primCount);
+		buildState.parentIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.clusterCount = CudaMemory::AllocAsync<uint32_t>(1);
 		McT* mortonCodes = CudaMemory::AllocAsync<McT>(buildState.primCount);
 
 		// Init parent ids to -1
-		CudaMemory::MemsetAsync(buildState.parentIdx, INVALID_IDX, sizeof(int32_t) * buildState.primCount);
+		CudaMemory::MemsetAsync(buildState.parentIdx, INVALID_IDX, sizeof(uint32_t) * buildState.primCount);
 		CudaMemory::CopyAsync(buildState.clusterCount, &buildState.primCount, 1, cudaMemcpyHostToDevice);
 
 		void* args[2] = { &buildState, &mortonCodes };
@@ -53,7 +53,7 @@ namespace NXB
 
 		// Step 3: Sort morton codes
 		// ===============================================================================
-		RadixSort(buildState, mortonCodes, buildMetrics);
+		RadixSort<McT>(buildState, mortonCodes, buildMetrics);
 		// ===============================================================================
 
 		gridSize = DivideRoundUp(buildState.primCount, blockSize);
@@ -96,11 +96,9 @@ namespace NXB
 			void* args[2] = { &bvh, &cost };
 			uint32_t gridSize = DivideRoundUp(nodeCount, blockSize);
 
-			CUDA_CHECK(cudaLaunchKernel(ComputeBVHCostKernel, gridSize, blockSize, args, 0, 0));
+			CUDA_CHECK(cudaLaunchKernel(ComputeBVH2CostKernel, gridSize, blockSize, args, 0, 0));
 
-			CudaMemory::CopyAsync(&buildMetrics->bvhCost, cost, 1, cudaMemcpyDeviceToHost);
-
-			// Same stream as the copy above, so the free is ordered after it
+			CudaMemory::CopyAsync(&buildMetrics->bvh2Cost, cost, 1, cudaMemcpyDeviceToHost);
 			CudaMemory::FreeAsync(cost);
 		}
 
@@ -204,8 +202,8 @@ namespace NXB
 		buildState.bvh2Nodes = bvh2.nodes;
 		buildState.primCount = bvh2.primCount;
 
-		// Worst case senario for a BVH8: node count = (4n - 1) / 7.
-		// This occurs when each internal node in the level above leaves contains only two leaf nodes
+		// Worst case senario for a BVH8 built with H-PLOC collapsing: node count = (4n - 1) / 7.
+		// This occurs when each internal node in the level above the leaves contains only two leaf nodes
 		buildState.bvh8Nodes = CudaMemory::AllocAsync<BVH8::Node>(DivideRoundUp(4 * buildState.primCount - 1, 7));
 		buildState.primIdx = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 		buildState.nodeCounter = CudaMemory::AllocAsync<uint32_t>(1);
@@ -259,7 +257,27 @@ namespace NXB
 		bvh8.primCount = buildState.primCount;
 		CudaMemory::CopyAsync<uint32_t>(&bvh8.nodeCount, buildState.nodeCounter, 1, cudaMemcpyDeviceToHost);
 
-		CudaMemory::FreeAsync(bvh2.nodes);
+		if (buildMetrics)
+		{
+			float* cost = CudaMemory::AllocAsync<float>(1);
+			CudaMemory::MemsetAsync(cost, 0, sizeof(float));
+			// Make sure we get the node count
+			CUDA_CHECK(cudaDeviceSynchronize());
+
+			void* args[2] = { &bvh8, &cost };
+			uint32_t gridSize = DivideRoundUp(bvh8.nodeCount, blockSize);
+
+			CUDA_CHECK(cudaLaunchKernel(ComputeBVH8CostKernel, gridSize, blockSize, args, 0, 0));
+
+			CudaMemory::CopyAsync(&buildMetrics->bvh8Cost, cost, 1, cudaMemcpyDeviceToHost);
+			CudaMemory::FreeAsync(cost);
+
+			// Warning: this formula is only valid if a leaf node contains exactly one primitive
+			// Should be (totalNodes - 1) / internalNodes
+			buildMetrics->averageChildPerNode = (float)(bvh8.primCount + bvh8.nodeCount - 1) / bvh8.nodeCount;
+		}
+
+		FreeDeviceBVH(bvh2);
 		CudaMemory::FreeAsync(buildState.nodeCounter);
 		CudaMemory::FreeAsync(buildState.leafCounter);
 		CudaMemory::FreeAsync(buildState.workCounter);

@@ -39,18 +39,16 @@ namespace NXB
 	// Compressed wide BVH (See Ylitie et al.)
 	struct BVH8
 	{
-		using byte = unsigned char;
-
 		struct NodeExplicit
 		{
 			// Origin point of the local grid
 			float3 p;
 
 			// Scale of the grid
-			byte e[3];
+			uint8_t e[3];
 
 			// 8-bit mask to indicate which of the children are internal nodes
-			byte imask = 0;
+			uint8_t imask = 0;
 
 			// Index of the first child
 			uint32_t childBaseIdx = 0;
@@ -59,13 +57,13 @@ namespace NXB
 			uint32_t primBaseIdx = 0;
 
 			// Field encoding the indexing information of every child
-			byte meta[8];
+			uint8_t meta[8];
 
 			// Quantized origin of the childs' AABBs
-			byte qlox[8], qloy[8], qloz[8];
+			uint8_t qlox[8], qloy[8], qloz[8];
 
 			// Quantized end point of the childs' AABBs
-			byte qhix[8], qhiy[8], qhiz[8];
+			uint8_t qhix[8], qhiy[8], qhiz[8];
 
 		};
 

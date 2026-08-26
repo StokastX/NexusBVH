@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "BVH.h"
 
 namespace NXB
 {
@@ -12,7 +13,9 @@ namespace NXB
 			bvhBuildTime += other.bvhBuildTime;
 			bvh8ConversionTime += other.bvh8ConversionTime;
 			totalTime += other.totalTime;
-			bvhCost += other.bvhCost;
+			bvh2Cost += other.bvh2Cost;
+			bvh8Cost += other.bvh8Cost;
+			averageChildPerNode += other.averageChildPerNode;
 			return *this;
 		}
 
@@ -24,10 +27,13 @@ namespace NXB
 			result.bvhBuildTime = bvhBuildTime / divisor;
 			result.bvh8ConversionTime = bvh8ConversionTime / divisor;
 			result.totalTime = totalTime / divisor;
-			result.bvhCost = bvhCost / divisor;
+			result.bvh2Cost = bvh2Cost / divisor;
+			result.bvh8Cost = bvh8Cost / divisor;
+			result.averageChildPerNode = averageChildPerNode / divisor;
 			return result;
 		}
 
+		// Timings
 		float computeSceneBoundsTime = 0.0f;
 		float computeMortonCodesTime = 0.0f;
 		float radixSortTime = 0.0f;
@@ -35,7 +41,12 @@ namespace NXB
 		float bvh8ConversionTime = 0.0f;
 		float totalTime = 0.0f;
 
-		float bvhCost = 0.0f;
+		// SAH cost
+		float bvh2Cost = 0.0f;
+		float bvh8Cost = 0.0f;
+
+		// For wide BVHs: average number of children per internal node
+		float averageChildPerNode = 0.0f;
 	};
 
 	/*
@@ -52,6 +63,7 @@ namespace NXB
 	BVHBuildMetrics BenchmarkBuild(Func&& func, uint32_t warmupIterations, uint32_t measuredIterations, Args && ...args)
 	{
 		BVHBuildMetrics aggregatedMetrics = {};
+		using ReturnT = decltype(func(std::forward<Args>(args)..., nullptr));
 
 		std::cout << std::endl << "========== BENCHMARKING BVH BUILD ==========" << std::endl << std::endl;
 		// Warm-up: build several times
@@ -75,10 +87,19 @@ namespace NXB
 		std::cout << "Scene bounds: " << aggregatedMetrics.computeSceneBoundsTime << " ms" << std::endl;
 		std::cout << "Morton codes: " << aggregatedMetrics.computeMortonCodesTime << " ms" << std::endl;
 		std::cout << "Radix sort: " << aggregatedMetrics.radixSortTime << " ms" << std::endl;
-		std::cout << "BVH build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
-		std::cout << "BVH8 conversion time: " << aggregatedMetrics.bvh8ConversionTime << " ms" << std::endl;
+		std::cout << "BVH2 build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
+
+		if constexpr (std::is_same_v<ReturnT, BVH8>)
+			std::cout << "BVH8 conversion time: " << aggregatedMetrics.bvh8ConversionTime << " ms" << std::endl;
+
 		std::cout << "Total BVH build time: " << aggregatedMetrics.totalTime << " ms" << std::endl;
-		std::cout << std::endl << "BVH cost: " << aggregatedMetrics.bvhCost << std::endl;
+
+		std::cout << std::endl << "BVH2 cost: " << aggregatedMetrics.bvh2Cost << std::endl;
+		if constexpr (std::is_same_v<ReturnT, BVH8>)
+		{
+			std::cout << "BVH8 cost: " << aggregatedMetrics.bvh8Cost << std::endl;
+			std::cout << "Average children per node: " << aggregatedMetrics.averageChildPerNode << std::endl;
+		}
 
 		std::cout << std::endl << "========== BENCHMARKING DONE ==========" << std::endl << std::endl;
 

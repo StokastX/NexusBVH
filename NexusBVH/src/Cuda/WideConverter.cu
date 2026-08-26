@@ -13,74 +13,26 @@
 // A larger theta reduces the number of iterations which result in a less precise assignment
 #define THETA 8
 
-// Scaling factor that determines an order of magnitude of the maximum possible cost of all assignment table
+// Scaling factor that determines an order of magnitude of the maximum possible cost of the cost table
 #define MAX_COST 10.0f
 
-using byte = unsigned char;
 constexpr float quantStep = 1.0f / ((float)(1 << NQ) - 1);
 constexpr float invTheta = 1.0f / (float)THETA;
 
 
 namespace NXB
 {
-	__device__ __forceinline__ uint32_t CeilLog2(float x)
-	{
-		uint32_t ix = __float_as_uint(x);
-		uint32_t exp = ((ix >> 23) & 0xFF);
-		// check if x is exactly 2^exp => mantissa bits are zero
-		bool isPow2 = (ix & ((1 << 23) - 1)) == 0;
-		return exp + !isPow2;
-	}
-
-	__device__ __forceinline__ float InvPow2(byte eBiased)
-	{
-		return __uint_as_float((uint32_t)(254 - eBiased) << 23);
-	}
-
-	__device__ __forceinline__ uint64_t GlobalLoad(uint64_t* addr)
-	{
-		uint64_t value;
-		asm volatile("ld.global.cg.u64 %0, [%1];" : "=l"(value) : "l"(addr));
-		return value;
-	}
-
-	__device__ __forceinline__ void GlobalStore(uint64_t* addr, uint64_t value)
-	{
-		asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(addr), "l"(value));
-	}
-
-	__device__ __forceinline__ uint32_t CountBitsBelow(uint32_t x, uint32_t i)
-	{
-		uint32_t mask = (1u << i) - 1;
-		return __popc(x & mask);
-	}
-
-	// Get nibble (yes, a half-byte is called a nibble) at index i, where i is between 0 and 7
-	__device__ __forceinline__ uint32_t GetNibble(uint32_t x, uint32_t i)
-	{
-		return (x >> (4 * i)) & 0xf;
-	}
-
-	__device__ __forceinline__ void SetNibble(uint32_t& x, uint32_t i, uint32_t value)
-	{
-		x &= ~(0xf << (4 * i));
-		x |= value << (4 * i);
-	}
-
-	// Compute the cost of placing child c in slot s
-	__device__ __forceinline__ float GetCost(uint32_t c, uint32_t s, float3 offsets[8])
-	{
-		float3 offset = offsets[c];
-		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
-			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
-			   (s & 1 ? -1.0f : 1.0f) * offset.z;
-	}
-
 	__device__ __forceinline__ float GetCost(uint32_t s, float3 offset)
 	{
 		return ((s >> 2) & 1 ? -1.0f : 1.0f) * offset.x +
 			   ((s >> 1) & 1 ? -1.0f : 1.0f) * offset.y +
 			   (s & 1 ? -1.0f : 1.0f) * offset.z;
+	}
+
+	// Compute the cost of placing child c in slot s
+	__device__ __forceinline__ float GetCost(uint32_t c, uint32_t s, float3 offsets[8])
+	{
+		return GetCost(s, offsets[c]);
 	}
 
 	// For debugging purposes
@@ -122,7 +74,6 @@ namespace NXB
 				float winningReward = -FLT_MAX;
 				float secondWinningReward = -FLT_MAX;
 				uint32_t winningSlot = INVALID_ASSIGNMENT;
-				uint32_t secondWinningSlot = INVALID_ASSIGNMENT;
 
 				for (uint32_t s = 0; s < 8; s++)
 				{
@@ -131,14 +82,10 @@ namespace NXB
 					{
 						secondWinningReward = winningReward;
 						winningReward = reward;
-						secondWinningSlot = winningSlot;
 						winningSlot = s;
 					}
 					else if (reward > secondWinningReward)
-					{
 						secondWinningReward = reward;
-						secondWinningSlot = s;
-					}
 				}
 
 				prices[winningSlot] += (winningReward - secondWinningReward) + epsilon;
@@ -251,13 +198,13 @@ namespace NXB
 			}
 
 			AABB childBounds = buildState.bvh2Nodes[childNodes[assignment]].bounds;
-			bvh8Node.qlox[i] = (byte)floorf((childBounds.bMin.x - bounds.bMin.x) * invE.x);
-			bvh8Node.qloy[i] = (byte)floorf((childBounds.bMin.y - bounds.bMin.y) * invE.y);
-			bvh8Node.qloz[i] = (byte)floorf((childBounds.bMin.z - bounds.bMin.z) * invE.z);
+			bvh8Node.qlox[i] = (uint8_t)floorf((childBounds.bMin.x - bounds.bMin.x) * invE.x);
+			bvh8Node.qloy[i] = (uint8_t)floorf((childBounds.bMin.y - bounds.bMin.y) * invE.y);
+			bvh8Node.qloz[i] = (uint8_t)floorf((childBounds.bMin.z - bounds.bMin.z) * invE.z);
 
-			bvh8Node.qhix[i] = (byte)ceilf((childBounds.bMax.x - bounds.bMin.x) * invE.x);
-			bvh8Node.qhiy[i] = (byte)ceilf((childBounds.bMax.y - bounds.bMin.y) * invE.y);
-			bvh8Node.qhiz[i] = (byte)ceilf((childBounds.bMax.z - bounds.bMin.z) * invE.z);
+			bvh8Node.qhix[i] = (uint8_t)ceilf((childBounds.bMax.x - bounds.bMin.x) * invE.x);
+			bvh8Node.qhiy[i] = (uint8_t)ceilf((childBounds.bMax.y - bounds.bMin.y) * invE.y);
+			bvh8Node.qhiz[i] = (uint8_t)ceilf((childBounds.bMax.z - bounds.bMin.z) * invE.z);
 		}
 
 		BVH8::Node node = *(BVH8::Node*)&bvh8Node;

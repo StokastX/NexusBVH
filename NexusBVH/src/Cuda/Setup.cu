@@ -58,23 +58,29 @@ namespace NXB
 		}
 	}
 
-	void RadixSort(BVH2BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics)
-	{
-		using byte = unsigned char;
 
+	template <typename McT>
+	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, BVHBuildMetrics* buildMetrics)
+	{
 		size_t tempStorageBytes = 0;
 		void* tempStorage = nullptr;
 
-		uint32_t* mortonCodesSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+		McT* mortonCodesSorted = CudaMemory::AllocAsync<McT>(buildState.primCount);
 		uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
 
-		cub::DoubleBuffer<uint32_t> keysBuffer(mortonCodes, mortonCodesSorted);
+		cub::DoubleBuffer<McT> keysBuffer(mortonCodes, mortonCodesSorted);
 		cub::DoubleBuffer<uint32_t> valuesBuffer(buildState.clusterIdx, clusteridxSorted);
 
-		// Get the temporary storage size necessary to perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, 2, 32);
+		uint32_t startBit, endBit;
+		if constexpr (std::is_same_v<McT, uint32_t>)
+			startBit = 2, endBit = 32;
+		else
+			startBit = 1, endBit = 64;
 
-		tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
+		// Get the temporary storage size necessary to perform radix sorting
+		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit);
+
+		tempStorage = CudaMemory::AllocAsync<uint8_t>(tempStorageBytes);
 
 		cudaEvent_t start, stop;
 		if (buildMetrics)
@@ -85,55 +91,7 @@ namespace NXB
 		}
 
 		// Perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, 2, 32);
-
-		if (buildMetrics)
-		{
-			CUDA_CHECK(cudaEventRecord(stop));
-			CUDA_CHECK(cudaEventSynchronize(stop));
-			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop));
-			CUDA_CHECK(cudaEventDestroy(start));
-			CUDA_CHECK(cudaEventDestroy(stop));
-		}
-
-		mortonCodes = keysBuffer.Current();
-		buildState.clusterIdx = valuesBuffer.Current();
-
-		CudaMemory::FreeAsync(tempStorage);
-
-		CudaMemory::FreeAsync(keysBuffer.Alternate());
-		CudaMemory::FreeAsync(valuesBuffer.Alternate());
-
-	}
-
-	void RadixSort(BVH2BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics)
-	{
-		using byte = unsigned char;
-
-		size_t tempStorageBytes = 0;
-		void* tempStorage = nullptr;
-
-		uint64_t* mortonCodesSorted = CudaMemory::AllocAsync<uint64_t>(buildState.primCount);
-		uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
-
-		cub::DoubleBuffer<uint64_t> keysBuffer(mortonCodes, mortonCodesSorted);
-		cub::DoubleBuffer<uint32_t> valuesBuffer(buildState.clusterIdx, clusteridxSorted);
-
-		// Get the temporary storage size necessary to perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, 1, 64);
-
-		tempStorage = CudaMemory::AllocAsync<byte>(tempStorageBytes);
-
-		cudaEvent_t start, stop;
-		if (buildMetrics)
-		{
-			CUDA_CHECK(cudaEventCreate(&start));
-			CUDA_CHECK(cudaEventCreate(&stop));
-			CUDA_CHECK(cudaEventRecord(start));
-		}
-
-		// Perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, 1, 64);
+		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit);
 
 		if (buildMetrics)
 		{
@@ -158,4 +116,7 @@ namespace NXB
 
 	template __global__ void ComputeMortonCodesKernel<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
 	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
+
+	template void RadixSort<uint32_t>(BVH2BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	template void RadixSort<uint64_t>(BVH2BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
 }
