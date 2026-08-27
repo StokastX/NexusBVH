@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #include <vector_types.h>
 
@@ -23,6 +24,25 @@ namespace NXB
 			uint32_t rightChild;
 		};
 
+		/* rief What a kernel receives
+		 *
+		 * Kernel parameters are bitwise copied into parameter space, so they have to be
+		 * trivially copyable -- which an owning type is not. This is the value the owner
+		 * will hand out once BVH2 itself owns its memory; the pointer inside it belongs
+		 * to that owner and does not outlive it.
+		 */
+		struct DeviceView
+		{
+			Node* nodes;
+			uint32_t nodeCount;
+			uint32_t primCount;
+
+			// Root bounds
+			AABB bounds;
+		};
+
+		DeviceView View() const { return DeviceView{ nodes, nodeCount, primCount, bounds }; }
+
 		Node* nodes;
 		uint32_t nodeCount;
 		uint32_t primCount;
@@ -30,6 +50,9 @@ namespace NXB
 		// Root bounds
 		AABB bounds;
 	};
+
+	static_assert(std::is_trivially_copyable<BVH2::DeviceView>::value,
+		"BVH2::DeviceView is passed by value into kernels and must stay trivially copyable");
 
 	// Compressed wide BVH (See Ylitie et al.)
 	struct BVH8
@@ -80,6 +103,21 @@ namespace NXB
 			float4 qhiy_qhiz;
 		};
 
+		// See BVH2::DeviceView
+		struct DeviceView
+		{
+			Node* nodes;
+			uint32_t nodeCount;
+
+			uint32_t* primIdx;
+			uint32_t primCount;
+
+			// Root bounds
+			AABB bounds;
+		};
+
+		DeviceView View() const { return DeviceView{ nodes, nodeCount, primIdx, primCount, bounds }; }
+
 		Node* nodes;
 		uint32_t nodeCount;
 
@@ -89,4 +127,7 @@ namespace NXB
 		// Root bounds
 		AABB bounds;
 	};
+
+	static_assert(std::is_trivially_copyable<BVH8::DeviceView>::value,
+		"BVH8::DeviceView is passed by value into kernels and must stay trivially copyable");
 }

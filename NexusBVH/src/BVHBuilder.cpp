@@ -20,8 +20,8 @@ namespace NXB
 	 * Only ever called when build metrics are requested, so the synchronization needed
 	 * to hand the result back to the host is acceptable here.
 	 */
-	template <typename BvhT>
-	void EvaluateCost(void (*costKernel)(BvhT, float*), const BvhT& bvh, uint32_t nodeCount, uint32_t blockSize, float* dst, const BuildConfig& buildConfig)
+	template <typename ViewT>
+	void EvaluateCost(void (*costKernel)(ViewT, float*), ViewT bvh, uint32_t nodeCount, uint32_t blockSize, float* dst, const BuildConfig& buildConfig)
 	{
 		cudaStream_t stream = buildConfig.stream;
 		DeviceBuffer<float> cost(1, stream, buildConfig.pool);
@@ -109,7 +109,7 @@ namespace NXB
 			// The cost kernel takes bvh by value and divides by its bounds area, so the
 			// readback above has to have landed before the launch
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-			EvaluateCost(ComputeBVH2CostKernel, bvh, nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
+			EvaluateCost(ComputeBVH2CostKernel, bvh.View(), nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
 		}
 	}
 
@@ -257,7 +257,7 @@ namespace NXB
 			// collapse produced, so the readback above has to have landed
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-			EvaluateCost(ComputeBVH8CostKernel, bvh8, bvh8.nodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
+			EvaluateCost(ComputeBVH8CostKernel, bvh8.View(), bvh8.nodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
 
 			// Warning: this formula is only valid if a leaf node contains exactly one primitive
 			// Should be (totalNodes - 1) / internalNodes

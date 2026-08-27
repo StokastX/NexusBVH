@@ -105,6 +105,25 @@ namespace NXB
 		// Bytes currently handed out to live allocations
 		uint64_t UsedBytes() const { return Attribute(cudaMemPoolAttrUsedMemCurrent); }
 
+		/* rief The most bytes ever live at once since the last ResetPeakUsedBytes
+		 *
+		 * The peak working set of whatever ran in between, which for a build is every
+		 * buffer it holds simultaneously. Worth more than ReservedBytes for checking that
+		 * the allocations went where they were meant to: reserved is rounded up to the
+		 * pool's chunk size and barely moves, this is exact to the byte.
+		 */
+		uint64_t PeakUsedBytes() const { return Attribute(cudaMemPoolAttrUsedMemHigh); }
+
+		// Restarts the PeakUsedBytes measurement from what is live right now
+		void ResetPeakUsedBytes()
+		{
+			if (!m_pool)
+				return;
+
+			uint64_t reset = 0;
+			NXB_CUDA_CHECK(cudaMemPoolSetAttribute(m_pool, cudaMemPoolAttrUsedMemHigh, &reset));
+		}
+
 		int32_t Device() const { return m_device; }
 
 		void Reset()

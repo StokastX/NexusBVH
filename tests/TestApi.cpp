@@ -90,8 +90,10 @@ TEST_CASE("A MemoryPool is reused across builds")
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
 	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
+	const uint32_t primCount = 1000;
+
 	auto BuildAndFree = [&] {
-		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
+		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), primCount, buildConfig);
 		NXB::FreeDeviceBVH(bvh);
 	};
 
@@ -102,6 +104,22 @@ TEST_CASE("A MemoryPool is reused across builds")
 	const uint64_t settledReserved = pool.ReservedBytes();
 	CHECK(settledReserved > 0);
 	CHECK(pool.UsedBytes() == 0);
+
+	/*
+	 * Every buffer a BVH2 build holds live at once has to have come from this pool. The
+	 * peak is exact to the byte, which is what makes this the assertion that catches one
+	 * allocation site being left on the default pool -- ReservedBytes cannot, because the
+	 * pool rounds it up to a 32 MB chunk that does not move with the scene size.
+	 *
+	 * Default BuildConfig means 64-bit Morton codes. Anything not listed here (cub's
+	 * temporary storage, the two single element counters) only makes the real peak larger.
+	 */
+	const uint64_t nodeBytes = (2ull * primCount - 1) * sizeof(NXB::BVH2::Node);
+	const uint64_t scratchBytes = primCount * (4ull + 4ull + 8ull + 8ull + 4ull);
+
+	pool.ResetPeakUsedBytes();
+	BuildAndFree();
+	CHECK(pool.PeakUsedBytes() >= nodeBytes + scratchBytes);
 
 	for (uint32_t i = 0; i < 20; i++)
 		BuildAndFree();

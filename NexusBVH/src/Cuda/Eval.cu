@@ -9,7 +9,7 @@
 
 namespace NXB
 {
-	__global__ void ComputeBVH2CostKernel(BVH2 bvh, float* cost)
+	__global__ void ComputeBVH2CostKernel(BVH2::DeviceView bvh, float* cost)
 	{
 		uint32_t nodeIdx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -33,7 +33,7 @@ namespace NXB
 	}
 
 
-	__global__ void ComputeBVH8CostKernel(BVH8 bvh, float* cost)
+	__global__ void ComputeBVH8CostKernel(BVH8::DeviceView bvh, float* cost)
 	{
 		uint32_t nodeIdx = blockDim.x * blockIdx.x + threadIdx.x;
 
