@@ -10,11 +10,11 @@
 
 #include "NXB/BVHBuilder.h"
 #include "NXB/BenchmarkReport.h"
+#include "NXB/DeviceBuffer.h"
+#include "NXB/Error.h"
 
 #include "TestChecks.h"
 #include "support/BVHChecks.h"
-#include "support/CudaTestCheck.h"
-#include "support/DeviceBuffer.h"
 #include "support/Scenes.h"
 #include "support/TestConfig.h"
 
@@ -43,6 +43,63 @@ TEST_CASE("Empty input returns an empty BVH")
 	CHECK(bvh8.primCount == 0);
 }
 
+/*
+ * The error handling contract itself. This used to call exit(99) from inside the library,
+ * which took the whole test run down with it and gave an embedder no way to recover.
+ */
+TEST_CASE("A failed allocation throws instead of exiting")
+{
+	NXB::BuildConfig buildConfig;
+	buildConfig.prioritizeSpeed = true;
+
+	// 500M primitives needs 2n - 1 nodes at 32 B each, i.e. roughly 32 GB of BVH2 nodes.
+	// The allocation fails before any kernel is launched, so the null primitive pointer
+	// below is never dereferenced, and an out of memory is not sticky -- the cases after
+	// this one still run against a healthy context.
+	const uint32_t primCount = 500000000;
+
+	bool threw = false;
+	try
+	{
+		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(nullptr, primCount, buildConfig);
+		NXB::FreeDeviceBVH(bvh);
+	}
+	catch (const NXB::CudaError& error)
+	{
+		threw = true;
+		CHECK(error.code == cudaErrorMemoryAllocation);
+
+		// The message names the call that failed, which is the whole point of carrying one
+		CHECK(std::string(error.what()).find("cudaMallocAsync") != std::string::npos);
+	}
+	CHECK(threw);
+
+	/*
+	 * Whatever the failed build had already allocated was released on the way out, so a
+	 * smaller build still succeeds afterwards -- and what it returns has to be a real
+	 * hierarchy, not merely a non null pointer.
+	 *
+	 * Walking it is what covers the state the failed build leaves behind. Throwing used
+	 * to leave the error pending in the runtime, cub read that as the device being
+	 * invalid, its temporary storage query failed unchecked, and this build then sorted
+	 * nothing -- producing a tree that is structurally valid and quality wise garbage.
+	 * The sort is checked now, so a return of that leak throws here instead of lying.
+	 */
+	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+
+	NXB::BVH2 deviceBvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
+	REQUIRE(deviceBvh.nodes != nullptr);
+
+	NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);
+
+	CheckValid(ValidateBVH2(hostBvh));
+	CheckValid(ValidateSceneBounds(hostBvh.bounds, ReferenceSceneBounds(triangles)));
+
+	NXB::FreeHostBVH(hostBvh);
+	NXB::FreeDeviceBVH(deviceBvh);
+}
+
 } // TEST_SUITE fast
 
 
@@ -57,14 +114,14 @@ TEST_SUITE("slow")
 TEST_CASE("Build on a caller owned stream")
 {
 	cudaStream_t stream = nullptr;
-	NXB_TEST_CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+	NXB_CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
 	NXB::BuildConfig buildConfig;
 	buildConfig.prioritizeSpeed = true;
 	buildConfig.stream = stream;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(largeScenePrimCount, largeSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	NXB::BVH2 deviceBvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);
 	NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);
@@ -77,7 +134,7 @@ TEST_CASE("Build on a caller owned stream")
 
 	NXB::FreeHostBVH(hostBvh);
 	NXB::FreeDeviceBVH(deviceBvh);
-	NXB_TEST_CUDA_CHECK(cudaStreamDestroy(stream));
+	NXB_CUDA_CHECK(cudaStreamDestroy(stream));
 }
 
 /*
@@ -96,7 +153,7 @@ TEST_CASE("Requesting metrics times every step of a BVH2 build")
 	buildConfig.prioritizeSpeed = true;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	NXB::BVHBuildMetrics metrics = {};
 	NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), (uint32_t)triangles.size(),
@@ -126,7 +183,7 @@ TEST_CASE("Requesting metrics times the collapse of a BVH8 build")
 	buildConfig.prioritizeSpeed = true;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	NXB::BVHBuildMetrics metrics = {};
 	NXB::BVH8 bvh = NXB::BuildBVH8<NXB::Triangle>(devicePrims.Get(), (uint32_t)triangles.size(),
@@ -152,7 +209,7 @@ TEST_CASE("BenchmarkBuild returns one sample per measured iteration")
 	buildConfig.prioritizeSpeed = true;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	std::vector<NXB::BVHBuildMetrics> samples = NXB::BenchmarkBuild(NXB::BuildBVH8<NXB::Triangle>,
 		2, 3, devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);
@@ -188,7 +245,7 @@ TEST_CASE("BenchmarkBuild with no measured iterations yields no samples")
 	buildConfig.prioritizeSpeed = true;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	std::vector<NXB::BVHBuildMetrics> samples = NXB::BenchmarkBuild(NXB::BuildBVH8<NXB::Triangle>,
 		0, 0, devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);
@@ -209,7 +266,7 @@ TEST_CASE("PrintReport renders a report without touching stdout")
 	buildConfig.prioritizeSpeed = true;
 
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
-	DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	std::vector<NXB::BVHBuildMetrics> samples = NXB::BenchmarkBuild(NXB::BuildBVH8<NXB::Triangle>,
 		0, 2, devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);

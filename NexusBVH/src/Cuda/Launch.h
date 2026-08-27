@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "NXB/BVHBuildMetrics.h"
-#include "CudaUtils.h"
+#include "NXB/Error.h"
 
 namespace NXB
 {
@@ -40,7 +40,7 @@ namespace NXB
 			// takes no arguments. cudaLaunchKernel only reads as many entries as the
 			// kernel signature declares.
 			void* argPtrs[sizeof...(Params) + 1] = { (void*)&param..., nullptr };
-			CUDA_CHECK(cudaLaunchKernel(reinterpret_cast<const void*>(kernel), gridSize, blockSize, argPtrs, 0, stream));
+			NXB_CUDA_CHECK(cudaLaunchKernel(reinterpret_cast<const void*>(kernel), gridSize, blockSize, argPtrs, 0, stream));
 		}, params);
 	}
 
@@ -63,35 +63,54 @@ namespace NXB
 			if (!m_dst)
 				return;
 
-			CUDA_CHECK(cudaEventCreate(&m_start));
-			CUDA_CHECK(cudaEventCreate(&m_stop));
+			NXB_CUDA_CHECK(cudaEventCreate(&m_start));
 
-			// Drain the stream before starting the clock. Without it the per-step
-			// numbers silently borrow from each other whenever the host is free to run
-			// ahead - which is exactly what BenchmarkBuild's back-to-back loop does.
-			// Measured there, the radix sort reported 0.003 ms for 2M keys against a
-			// true ~0.4 ms, with the difference credited to the neighbouring steps;
-			// inserting any host-side work in the loop made the same build report the
-			// sort correctly. The totals were right either way, the breakdown was not.
-			//
-			// The cost is that the steps are measured serialized rather than pipelined,
-			// so the total reads higher than an untimed build actually takes. That is
-			// the usual trade for per-kernel attribution, and it is only ever paid when
-			// metrics are requested - StepTimer is inert otherwise.
-			CUDA_CHECK(cudaStreamSynchronize(m_stream));
-			CUDA_CHECK(cudaEventRecord(m_start, m_stream));
+			// If anything below throws, the destructor never runs -- this object was never
+			// fully constructed -- so the events created so far have to be released by hand
+			try
+			{
+				NXB_CUDA_CHECK(cudaEventCreate(&m_stop));
+
+				// Drain the stream before starting the clock. Without it the per-step
+				// numbers silently borrow from each other whenever the host is free to run
+				// ahead - which is exactly what BenchmarkBuild's back-to-back loop does.
+				// Measured there, the radix sort reported 0.003 ms for 2M keys against a
+				// true ~0.4 ms, with the difference credited to the neighbouring steps;
+				// inserting any host-side work in the loop made the same build report the
+				// sort correctly. The totals were right either way, the breakdown was not.
+				//
+				// The cost is that the steps are measured serialized rather than pipelined,
+				// so the total reads higher than an untimed build actually takes. That is
+				// the usual trade for per-kernel attribution, and it is only ever paid when
+				// metrics are requested - StepTimer is inert otherwise.
+				NXB_CUDA_CHECK(cudaStreamSynchronize(m_stream));
+				NXB_CUDA_CHECK(cudaEventRecord(m_start, m_stream));
+			}
+			catch (...)
+			{
+				cudaEventDestroy(m_start);
+				if (m_stop)
+					cudaEventDestroy(m_stop);
+				throw;
+			}
 		}
 
-		~StepTimer()
+		~StepTimer() noexcept
 		{
 			if (!m_dst)
 				return;
 
-			CUDA_CHECK(cudaEventRecord(m_stop, m_stream));
-			CUDA_CHECK(cudaEventSynchronize(m_stop));
-			CUDA_CHECK(cudaEventElapsedTime(m_dst, m_start, m_stop));
-			CUDA_CHECK(cudaEventDestroy(m_start));
-			CUDA_CHECK(cudaEventDestroy(m_stop));
+			// Deliberately unchecked. A destructor is noexcept, and this one also runs while
+			// an exception from the timed scope unwinds, where a second one in flight would
+			// terminate the process -- so NXB_CUDA_CHECK cannot be used here. Little is lost
+			// by it: a real failure inside the scope was already reported by the launch that
+			// raised it, and the only casualty here is one metrics number, which keeps
+			// whatever value it came in with.
+			if (cudaEventRecord(m_stop, m_stream) == cudaSuccess && cudaEventSynchronize(m_stop) == cudaSuccess)
+				cudaEventElapsedTime(m_dst, m_start, m_stop);
+
+			cudaEventDestroy(m_start);
+			cudaEventDestroy(m_stop);
 		}
 
 		StepTimer(const StepTimer&) = delete;

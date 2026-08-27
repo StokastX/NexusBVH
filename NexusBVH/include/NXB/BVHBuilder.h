@@ -1,11 +1,24 @@
 #pragma once
 #include "BVH.h"
 #include "AABB.h"
+#include "DeviceBuffer.h"
+#include "Error.h"
 #include "Triangle.h"
 #include "BuildConfig.h"
 
 namespace NXB
 {
+	/*
+	 * Error handling: every function below reports a CUDA failure by throwing
+	 * NXB::CudaError, and none of them terminate the process. A build that throws has
+	 * already released everything it allocated, so catching it leaks nothing and the
+	 * caller is free to retry with fewer primitives.
+	 *
+	 * The primitive pointers are DEVICE pointers, and the BVH2 / BVH8 handles returned
+	 * hold device pointers too. NXB::DeviceBuffer is the RAII way to produce the former;
+	 * the latter are released with FreeDeviceBVH.
+	 */
+
 	/* \brief Builds a binary BVH from a list of primitives
 	 *
 	 * \param primitives The primitives the BVH will be built from (AABB or Triangle)
