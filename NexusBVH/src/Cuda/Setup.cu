@@ -4,6 +4,7 @@
 #include <device_launch_parameters.h>
 
 #include "CudaUtils.h"
+#include "Launch.h"
 #include "BuilderUtils.h"
 
 
@@ -60,13 +61,13 @@ namespace NXB
 
 
 	template <typename McT>
-	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, BVHBuildMetrics* buildMetrics)
+	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics)
 	{
 		size_t tempStorageBytes = 0;
 		void* tempStorage = nullptr;
 
-		McT* mortonCodesSorted = CudaMemory::AllocAsync<McT>(buildState.primCount);
-		uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount);
+		McT* mortonCodesSorted = CudaMemory::AllocAsync<McT>(buildState.primCount, stream);
+		uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount, stream);
 
 		cub::DoubleBuffer<McT> keysBuffer(mortonCodes, mortonCodesSorted);
 		cub::DoubleBuffer<uint32_t> valuesBuffer(buildState.clusterIdx, clusteridxSorted);
@@ -78,37 +79,24 @@ namespace NXB
 			startBit = 1, endBit = 64;
 
 		// Get the temporary storage size necessary to perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit);
+		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream);
 
-		tempStorage = CudaMemory::AllocAsync<uint8_t>(tempStorageBytes);
-
-		cudaEvent_t start, stop;
-		if (buildMetrics)
-		{
-			CUDA_CHECK(cudaEventCreate(&start));
-			CUDA_CHECK(cudaEventCreate(&stop));
-			CUDA_CHECK(cudaEventRecord(start));
-		}
+		tempStorage = CudaMemory::AllocAsync<uint8_t>(tempStorageBytes, stream);
 
 		// Perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit);
-
-		if (buildMetrics)
 		{
-			CUDA_CHECK(cudaEventRecord(stop));
-			CUDA_CHECK(cudaEventSynchronize(stop));
-			CUDA_CHECK(cudaEventElapsedTime(&buildMetrics->radixSortTime, start, stop));
-			CUDA_CHECK(cudaEventDestroy(start));
-			CUDA_CHECK(cudaEventDestroy(stop));
+			StepTimer timer(MetricPtr(buildMetrics, &BVHBuildMetrics::radixSortTime), stream);
+
+			cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream);
 		}
 
 		mortonCodes = keysBuffer.Current();
 		buildState.clusterIdx = valuesBuffer.Current();
 
-		CudaMemory::FreeAsync(tempStorage);
+		CudaMemory::FreeAsync(tempStorage, stream);
 
-		CudaMemory::FreeAsync(keysBuffer.Alternate());
-		CudaMemory::FreeAsync(valuesBuffer.Alternate());
+		CudaMemory::FreeAsync(keysBuffer.Alternate(), stream);
+		CudaMemory::FreeAsync(valuesBuffer.Alternate(), stream);
 	}
 
 	template __global__ void ComputeSceneBoundsKernel<Triangle>(BVH2BuildState buildState, Triangle* primitives);
@@ -117,6 +105,6 @@ namespace NXB
 	template __global__ void ComputeMortonCodesKernel<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
 	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 
-	template void RadixSort<uint32_t>(BVH2BuildState& buildState, uint32_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
-	template void RadixSort<uint64_t>(BVH2BuildState& buildState, uint64_t*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	template void RadixSort<uint32_t>(BVH2BuildState& buildState, uint32_t*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+	template void RadixSort<uint64_t>(BVH2BuildState& buildState, uint64_t*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
 }

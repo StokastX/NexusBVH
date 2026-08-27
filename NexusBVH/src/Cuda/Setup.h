@@ -24,8 +24,11 @@ namespace NXB
 
 	/*
 	 * \brief Performs one sweep radix sort for Morton codes (keys) and cluster indices (values)
+	 *
+	 * On return, mortonCodes and buildState.clusterIdx point at whichever half of the
+	 * double buffer holds the sorted data
 	 */
 	template <typename McT>
-	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, BVHBuildMetrics* buildMetrics);
+	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
 
 }

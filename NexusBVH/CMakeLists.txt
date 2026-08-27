@@ -9,6 +9,7 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 file(GLOB src
     include/NXB/BVHBuilder.h
     include/NXB/BVHBuildMetrics.h
+    include/NXB/BenchmarkReport.h
     include/NXB/BuildConfig.h
     include/NXB/BVH.h
     include/NXB/Triangle.h
@@ -26,6 +27,7 @@ file(GLOB src
     src/Cuda/BuildState.h
     src/Cuda/BuilderUtils.h
     src/Cuda/CudaUtils.h
+    src/Cuda/Launch.h
     src/Cuda/Eval.h
     src/Cuda/Eval.cu
 
