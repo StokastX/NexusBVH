@@ -5,6 +5,7 @@
 #include "NXB/DeviceBuffer.h"
 #include "NXB/Triangle.h"
 #include "NXB/BVHBuildMetrics.h"
+#include "NXB/BuildConfig.h"
 #include "BuildState.h"
 
 namespace NXB
@@ -31,6 +32,6 @@ namespace NXB
 	 */
 	template <typename McT>
 	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
 
 }

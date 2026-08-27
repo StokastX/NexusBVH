@@ -43,6 +43,84 @@ TEST_CASE("Empty input returns an empty BVH")
 	CHECK(bvh8.primCount == 0);
 }
 
+/*
+ * BuildConfig::pool is a performance knob, so what the suite can pin is that it changes
+ * nothing else: a pooled build produces a hierarchy satisfying the same invariants.
+ */
+TEST_CASE("A build from a MemoryPool is still a valid build")
+{
+	NXB::MemoryPool pool;
+
+	NXB::BuildConfig buildConfig;
+	buildConfig.pool = pool.Handle();
+
+	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+
+	NXB::BVH2 deviceBvh2 = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
+	NXB::BVH2 hostBvh2 = NXB::ToHost(deviceBvh2);
+	CheckValid(ValidateBVH2(hostBvh2));
+	CheckValid(ValidateSceneBounds(hostBvh2.bounds, ReferenceSceneBounds(triangles)));
+	NXB::FreeHostBVH(hostBvh2);
+	NXB::FreeDeviceBVH(deviceBvh2);
+
+	NXB::BVH8 deviceBvh8 = NXB::BuildBVH8<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
+	NXB::BVH8 hostBvh8 = NXB::ToHost(deviceBvh8);
+	CheckValid(ValidateBVH8(hostBvh8, PrimBounds(triangles)));
+	NXB::FreeHostBVH(hostBvh8);
+	NXB::FreeDeviceBVH(deviceBvh8);
+}
+
+/*
+ * The point of the pool: repeated builds have to find their memory already reserved
+ * instead of re-acquiring it from the driver. That is invisible to a functional test, so
+ * without this case the feature could stop working with every other case still green.
+ *
+ * The used byte assertion is the sharper of the two. It is what caught the BVH arrays
+ * being released with cudaFree, which does free them, but returns them to the driver
+ * behind the pool's back and leaves its accounting permanently overstated.
+ */
+TEST_CASE("A MemoryPool is reused across builds")
+{
+	NXB::MemoryPool pool;
+
+	NXB::BuildConfig buildConfig;
+	buildConfig.pool = pool.Handle();
+
+	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+
+	auto BuildAndFree = [&] {
+		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
+		NXB::FreeDeviceBVH(bvh);
+	};
+
+	// A few builds first, to let the pool settle on the size this scene needs
+	for (uint32_t i = 0; i < 3; i++)
+		BuildAndFree();
+
+	const uint64_t settledReserved = pool.ReservedBytes();
+	CHECK(settledReserved > 0);
+	CHECK(pool.UsedBytes() == 0);
+
+	for (uint32_t i = 0; i < 20; i++)
+		BuildAndFree();
+
+	// Every build asks for the same sizes, so they have to be served from what the pool
+	// already holds rather than by growing it
+	CHECK(pool.ReservedBytes() == settledReserved);
+
+	// And nothing a build allocated is still outstanding once its BVH has been freed
+	CHECK(pool.UsedBytes() == 0);
+
+	// The caller can have the VRAM back on demand, and the pool still works afterwards
+	pool.TrimTo(0);
+	CHECK(pool.ReservedBytes() == 0);
+
+	BuildAndFree();
+	CHECK(pool.ReservedBytes() > 0);
+}
+
 } // TEST_SUITE fast
 
 

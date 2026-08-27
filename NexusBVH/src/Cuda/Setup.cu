@@ -63,12 +63,13 @@ namespace NXB
 
 	template <typename McT>
 	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics)
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics)
 	{
+		cudaStream_t stream = buildConfig.stream;
 		size_t tempStorageBytes = 0;
 
-		DeviceBuffer<McT> mortonCodesSorted(buildState.primCount, stream);
-		DeviceBuffer<uint32_t> clusterIdxSorted(buildState.primCount, stream);
+		DeviceBuffer<McT> mortonCodesSorted(buildState.primCount, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> clusterIdxSorted(buildState.primCount, stream, buildConfig.pool);
 
 		cub::DoubleBuffer<McT> keysBuffer(mortonCodes.Get(), mortonCodesSorted.Get());
 		cub::DoubleBuffer<uint32_t> valuesBuffer(clusterIdx.Get(), clusterIdxSorted.Get());
@@ -82,7 +83,7 @@ namespace NXB
 		// Get the temporary storage size necessary to perform radix sorting
 		NXB_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(nullptr, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream));
 
-		DeviceBuffer<uint8_t> tempStorage(tempStorageBytes, stream);
+		DeviceBuffer<uint8_t> tempStorage(tempStorageBytes, stream, buildConfig.pool);
 
 		// Perform radix sorting
 		{
@@ -108,7 +109,7 @@ namespace NXB
 	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 
 	template void RadixSort<uint32_t>(BVH2BuildState& buildState, DeviceBuffer<uint32_t>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
 	template void RadixSort<uint64_t>(BVH2BuildState& buildState, DeviceBuffer<uint64_t>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
 }

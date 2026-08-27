@@ -21,9 +21,10 @@ namespace NXB
 	 * to hand the result back to the host is acceptable here.
 	 */
 	template <typename BvhT>
-	void EvaluateCost(void (*costKernel)(BvhT, float*), const BvhT& bvh, uint32_t nodeCount, uint32_t blockSize, float* dst, cudaStream_t stream)
+	void EvaluateCost(void (*costKernel)(BvhT, float*), const BvhT& bvh, uint32_t nodeCount, uint32_t blockSize, float* dst, const BuildConfig& buildConfig)
 	{
-		DeviceBuffer<float> cost(1, stream);
+		cudaStream_t stream = buildConfig.stream;
+		DeviceBuffer<float> cost(1, stream, buildConfig.pool);
 		cost.FillBytes(0);
 
 		Launch(costKernel, DivideRoundUp(nodeCount, blockSize), blockSize, stream, bvh, cost.Get());
@@ -51,10 +52,10 @@ namespace NXB
 
 		// Scratch for the three steps below. The build state keeps raw pointers because it
 		// is passed by value into kernels, which an owning type cannot be.
-		DeviceBuffer<uint32_t> parentIdx(buildState.primCount, stream);
-		DeviceBuffer<uint32_t> clusterIdx(buildState.primCount, stream);
-		DeviceBuffer<uint32_t> clusterCount(1, stream);
-		DeviceBuffer<McT> mortonCodes(buildState.primCount, stream);
+		DeviceBuffer<uint32_t> parentIdx(buildState.primCount, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> clusterIdx(buildState.primCount, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> clusterCount(1, stream, buildConfig.pool);
+		DeviceBuffer<McT> mortonCodes(buildState.primCount, stream, buildConfig.pool);
 
 		buildState.parentIdx = parentIdx.Get();
 		buildState.clusterIdx = clusterIdx.Get();
@@ -78,7 +79,7 @@ namespace NXB
 
 		// Step 3: Sort morton codes
 		// ===============================================================================
-		RadixSort<McT>(buildState, mortonCodes, clusterIdx, stream, buildMetrics);
+		RadixSort<McT>(buildState, mortonCodes, clusterIdx, buildConfig, buildMetrics);
 		// ===============================================================================
 
 
@@ -108,7 +109,7 @@ namespace NXB
 			// The cost kernel takes bvh by value and divides by its bounds area, so the
 			// readback above has to have landed before the launch
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-			EvaluateCost(ComputeBVH2CostKernel, bvh, nodeCount, blockSize, &buildMetrics->bvh2Cost, stream);
+			EvaluateCost(ComputeBVH2CostKernel, bvh, nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
 		}
 	}
 
@@ -132,8 +133,8 @@ namespace NXB
 		uint32_t nodeCount = primCount * 2 - 1;
 		BVH2BuildState buildState;
 		buildState.primCount = primCount;
-		DeviceBuffer<AABB> sceneBoundsBuffer(1, stream);
-		DeviceBuffer<BVH2::Node> nodes(nodeCount, stream);
+		DeviceBuffer<AABB> sceneBoundsBuffer(1, stream, buildConfig.pool);
+		DeviceBuffer<BVH2::Node> nodes(nodeCount, stream, buildConfig.pool);
 
 		buildState.sceneBounds = sceneBoundsBuffer.Get();
 		buildState.nodes = nodes.Get();
@@ -202,13 +203,13 @@ namespace NXB
 
 		// Worst case senario for a BVH8 built with H-PLOC collapsing: node count = (4n - 1) / 7.
 		// This occurs when each internal node in the level above the leaves contains only two leaf nodes
-		DeviceBuffer<BVH8::Node> bvh8Nodes(DivideRoundUp(4 * buildState.primCount - 1, 7), stream);
-		DeviceBuffer<uint32_t> primIdx(buildState.primCount, stream);
-		DeviceBuffer<uint32_t> nodeCounter(1, stream);
-		DeviceBuffer<uint32_t> leafCounter(1, stream);
-		DeviceBuffer<uint32_t> workCounter(1, stream);
-		DeviceBuffer<uint32_t> workAllocCounter(1, stream);
-		DeviceBuffer<uint64_t> indexPairs(buildState.primCount, stream);
+		DeviceBuffer<BVH8::Node> bvh8Nodes(DivideRoundUp(4 * buildState.primCount - 1, 7), stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> primIdx(buildState.primCount, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> nodeCounter(1, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> leafCounter(1, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> workCounter(1, stream, buildConfig.pool);
+		DeviceBuffer<uint32_t> workAllocCounter(1, stream, buildConfig.pool);
+		DeviceBuffer<uint64_t> indexPairs(buildState.primCount, stream, buildConfig.pool);
 
 		buildState.bvh8Nodes = bvh8Nodes.Get();
 		buildState.primIdx = primIdx.Get();
@@ -256,7 +257,7 @@ namespace NXB
 			// collapse produced, so the readback above has to have landed
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-			EvaluateCost(ComputeBVH8CostKernel, bvh8, bvh8.nodeCount, blockSize, &buildMetrics->bvh8Cost, stream);
+			EvaluateCost(ComputeBVH8CostKernel, bvh8, bvh8.nodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
 
 			// Warning: this formula is only valid if a leaf node contains exactly one primitive
 			// Should be (totalNodes - 1) / internalNodes
@@ -309,17 +310,27 @@ namespace NXB
 		delete[] hostBvh.primIdx;
 	}
 
-	// The arrays come from cudaMallocAsync on the build stream; these entry points take no
-	// stream, so they release them with the synchronous cudaFree
+	/*
+	 * The arrays always come from the async allocator, so they are released back to it
+	 * rather than with cudaFree. cudaFree does free them, but when the build allocated
+	 * from a BuildConfig::pool it returns them to the driver behind that pool's back,
+	 * leaving cudaMemPoolAttrUsedMemCurrent permanently overstated.
+	 *
+	 * These entry points take no stream. The null stream is safe regardless of the one the
+	 * build ran on, because a build synchronizes its stream before handing the BVH over,
+	 * so nothing is still reading these arrays.
+	 */
 	void FreeDeviceBVH(BVH2 deviceBvh)
 	{
-		NXB_CUDA_CHECK(cudaFree(deviceBvh.nodes));
+		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.nodes, 0));
+		NXB_CUDA_CHECK(cudaStreamSynchronize(0));
 	}
 
 	void FreeDeviceBVH(BVH8 deviceBvh)
 	{
-		NXB_CUDA_CHECK(cudaFree(deviceBvh.nodes));
-		NXB_CUDA_CHECK(cudaFree(deviceBvh.primIdx));
+		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.nodes, 0));
+		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.primIdx, 0));
+		NXB_CUDA_CHECK(cudaStreamSynchronize(0));
 	}
 
 	template BVH2 BuildBVH2<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);

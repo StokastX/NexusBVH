@@ -3,6 +3,7 @@
 #include "AABB.h"
 #include "DeviceBuffer.h"
 #include "Error.h"
+#include "MemoryPool.h"
 #include "Triangle.h"
 #include "BuildConfig.h"
 

@@ -30,17 +30,25 @@ namespace NXB
 	public:
 		DeviceBuffer() = default;
 
-		explicit DeviceBuffer(size_t count, cudaStream_t stream = 0) : m_stream(stream)
+		/* \param pool Where to allocate from. nullptr means the stream's default pool,
+		 *        i.e. plain cudaMallocAsync. See NXB/MemoryPool.h for why a caller that
+		 *        builds more than once wants to pass one.
+		 */
+		explicit DeviceBuffer(size_t count, cudaStream_t stream = 0, cudaMemPool_t pool = nullptr) : m_stream(stream)
 		{
 			if (count == 0)
 				return;
 
-			NXB_CUDA_CHECK(cudaMallocAsync((void**)&m_ptr, sizeof(T) * count, stream));
+			if (pool)
+				NXB_CUDA_CHECK(cudaMallocFromPoolAsync((void**)&m_ptr, sizeof(T) * count, pool, stream));
+			else
+				NXB_CUDA_CHECK(cudaMallocAsync((void**)&m_ptr, sizeof(T) * count, stream));
+
 			m_count = count;
 		}
 
-		explicit DeviceBuffer(const std::vector<T>& host, cudaStream_t stream = 0)
-			: DeviceBuffer(host.size(), stream)
+		explicit DeviceBuffer(const std::vector<T>& host, cudaStream_t stream = 0, cudaMemPool_t pool = nullptr)
+			: DeviceBuffer(host.size(), stream, pool)
 		{
 			Upload(host.data(), host.size());
 		}
@@ -145,6 +153,8 @@ namespace NXB
 
 		void Reset()
 		{
+			// cudaFreeAsync returns the block to whichever pool it was taken from, so this
+			// needs no knowledge of the pool the constructor used.
 			// A destructor must not throw, so a failing free is swallowed
 			if (m_ptr != nullptr)
 				cudaFreeAsync(m_ptr, m_stream);

@@ -11,6 +11,13 @@ namespace NXB
 		// encoding has a limited accuracy which results in a lower BVH quality.
 		bool prioritizeSpeed = false;
 
+		// The pool every allocation of the build is taken from. nullptr means the
+		// stream's default pool, which CUDA creates with a release threshold of 0 and
+		// which therefore hands its memory back to the driver at every synchronization.
+		// Callers that build repeatedly should pass NXB::MemoryPool::Handle() instead:
+		// it is worth roughly 2x on rebuilds, and changes nothing about the result.
+		cudaMemPool_t pool = nullptr;
+
 		// The stream every allocation, copy and kernel of the build is issued on.
 		// The build is synchronized against this stream only, so a caller can
 		// overlap it with unrelated work instead of having the library stall the

@@ -10,6 +10,7 @@ file(GLOB src
     include/NXB/BVHBuilder.h
     include/NXB/DeviceBuffer.h
     include/NXB/Error.h
+    include/NXB/MemoryPool.h
     include/NXB/BVHBuildMetrics.h
     include/NXB/BenchmarkReport.h
     include/NXB/BuildConfig.h
