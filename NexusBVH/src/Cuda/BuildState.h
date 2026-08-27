@@ -1,6 +1,5 @@
 #pragma once
 
-#include <iostream>
 #include "NXB/AABB.h"
 #include "NXB/BVH.h"
 
