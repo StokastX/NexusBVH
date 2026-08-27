@@ -17,13 +17,6 @@ namespace NXB
 		float bvhBuildTime = 0.0f;
 		float bvh8ConversionTime = 0.0f;
 		float totalTime = 0.0f;
-
-		// SAH cost
-		float bvh2Cost = 0.0f;
-		float bvh8Cost = 0.0f;
-
-		// For wide BVHs: average number of children per internal node
-		float averageChildPerNode = 0.0f;
 	};
 
 
@@ -37,10 +30,7 @@ namespace NXB
 			&BVHBuildMetrics::radixSortTime,
 			&BVHBuildMetrics::bvhBuildTime,
 			&BVHBuildMetrics::bvh8ConversionTime,
-			&BVHBuildMetrics::totalTime,
-			&BVHBuildMetrics::bvh2Cost,
-			&BVHBuildMetrics::bvh8Cost,
-			&BVHBuildMetrics::averageChildPerNode
+			&BVHBuildMetrics::totalTime
 		};
 	}
 

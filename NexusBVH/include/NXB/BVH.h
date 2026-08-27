@@ -250,6 +250,20 @@ namespace NXB
 
 		uint32_t NodeCount() const { return m_nodeCount; }
 		uint32_t PrimCount() const { return m_primCount; }
+
+		/*
+		 * Average number of children per node, a coarse measure of how well the collapse
+		 * filled its 8 slots. Pure host arithmetic on the two counts above, so it costs
+		 * nothing to ask for.
+		 *
+		 * Warning: the formula is only valid while a leaf holds exactly one primitive.
+		 * Should be (totalNodes - 1) / internalNodes.
+		 */
+		float AverageChildPerNode() const
+		{
+			return m_nodeCount ? (float)(m_primCount + m_nodeCount - 1) / m_nodeCount : 0.0f;
+		}
+
 		const AABB& Bounds() const { return m_bounds; }
 		bool Empty() const { return m_nodes.Get() == nullptr; }
 

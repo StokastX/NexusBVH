@@ -90,15 +90,6 @@ namespace NXB
 
 		Detail::PrintMetricRow(out, "Total", mean.totalTime, median.totalTime, best.totalTime);
 
-		// Quality metrics are deterministic across identical builds, so only one column
-		// of them means anything
-		out << std::setprecision(2);
-		out << "\n  BVH2 SAH cost: " << mean.bvh2Cost << "\n";
-		if (isWide)
-		{
-			out << "  BVH8 SAH cost: " << mean.bvh8Cost << "\n";
-			out << "  Average children per node: " << mean.averageChildPerNode << "\n";
-		}
 		out << "\n";
 	}
 }

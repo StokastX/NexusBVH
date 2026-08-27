@@ -15,10 +15,12 @@ file(GLOB src
     include/NXB/BenchmarkReport.h
     include/NXB/BuildConfig.h
     include/NXB/BVH.h
+    include/NXB/BVHCost.h
     include/NXB/Triangle.h
     include/NXB/AABB.h
 
     src/BVHBuilder.cpp
+    src/BVHCost.cpp
 
     src/Cuda/BinaryBuilder.h
     src/Cuda/BinaryBuilder.cu

@@ -8,31 +8,9 @@
 #include "Cuda/BinaryBuilder.h"
 #include "Cuda/WideConverter.h"
 #include "Cuda/Setup.h"
-#include "Cuda/Eval.h"
 
 namespace NXB
 {
-	/*
-	 * \brief Evaluates the SAH cost of a finished BVH into *dst
-	 *
-	 * Only ever called when build metrics are requested, so the synchronization needed
-	 * to hand the result back to the host is acceptable here.
-	 */
-	template <typename ViewT>
-	void EvaluateCost(void (*costKernel)(ViewT, float*), ViewT bvh, uint32_t nodeCount, uint32_t blockSize, float* dst, const BuildConfig& buildConfig)
-	{
-		cudaStream_t stream = buildConfig.stream;
-		DeviceBuffer<float> cost(1, stream, buildConfig.pool);
-		cost.FillBytes(0);
-
-		Launch(costKernel, DivideRoundUp(nodeCount, blockSize), blockSize, stream, bvh, cost.Get());
-
-		cost.DownloadAsync(dst, 1);
-
-		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-	}
-
-
 	/*
 	 * \brief Steps 2 to 4 of the pipeline: Morton codes, radix sort, H-PLOC merging
 	 *
@@ -107,11 +85,6 @@ namespace NXB
 		{
 			buildMetrics->totalTime = buildMetrics->computeSceneBoundsTime + buildMetrics->computeMortonCodesTime
 				+ buildMetrics->radixSortTime + buildMetrics->bvhBuildTime;
-
-			// The cost kernel takes the view by value and divides by its bounds area, so
-			// the readback above has to have landed before the launch
-			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-			EvaluateCost(ComputeBVH2CostKernel, view, nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
 		}
 	}
 
@@ -244,20 +217,7 @@ namespace NXB
 		nodeCounter.DownloadAsync(&bvh8NodeCount, 1);
 
 		if (buildMetrics)
-		{
 			buildMetrics->totalTime += buildMetrics->bvh8ConversionTime;
-
-			// Both the grid size and averageChildPerNode below need the node count the
-			// collapse produced, so the readback above has to have landed
-			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-
-			BVH8::DeviceView view{ bvh8Nodes.Get(), bvh8NodeCount, primIdx.Get(), buildState.primCount, bvh2View.bounds };
-			EvaluateCost(ComputeBVH8CostKernel, view, bvh8NodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
-
-			// Warning: this formula is only valid if a leaf node contains exactly one primitive
-			// Should be (totalNodes - 1) / internalNodes
-			buildMetrics->averageChildPerNode = (float)(buildState.primCount + bvh8NodeCount - 1) / bvh8NodeCount;
-		}
 
 		// bvh8NodeCount is only settled once the readback above has landed
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));

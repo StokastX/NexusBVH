@@ -9,6 +9,7 @@
 #include <string>
 
 #include "NXB/BVHBuilder.h"
+#include "NXB/BVHCost.h"
 #include "NXB/BenchmarkReport.h"
 #include "NXB/DeviceBuffer.h"
 #include "NXB/Error.h"
@@ -41,6 +42,41 @@ TEST_CASE("Empty input returns an empty BVH")
 	CHECK(bvh8.Empty());
 	CHECK(bvh8.NodeCount() == 0);
 	CHECK(bvh8.PrimCount() == 0);
+}
+
+/*
+ * ComputeSAHCost is not part of a build, so it has to work on any BVH the caller holds --
+ * including an empty one, where there is no root to divide by and no kernel to launch.
+ */
+TEST_CASE("ComputeSAHCost evaluates a finished BVH")
+{
+	NXB::BuildConfig buildConfig;
+
+	CHECK(NXB::ComputeSAHCost(NXB::BVH2()) == 0.0f);
+	CHECK(NXB::ComputeSAHCost(NXB::BVH8()) == 0.0f);
+
+	std::vector<NXB::Triangle> triangles = GenerateTriangles(1000, smallSceneGridSize);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
+	const uint32_t primCount = (uint32_t)triangles.size();
+
+	NXB::BVH2 bvh2 = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), primCount, buildConfig);
+	const float bvh2Cost = NXB::ComputeSAHCost(bvh2);
+	REQUIRE(std::isfinite(bvh2Cost));
+	CHECK(bvh2Cost > 0.0f);
+
+	// Asking twice is a query, not a mutation, so the answer has to agree -- but not
+	// bit for bit. The kernel sums its per-node terms with a float atomic, so the
+	// summation order varies between launches and the last digit moves with it.
+	CHECK(NXB::ComputeSAHCost(bvh2) == doctest::Approx(bvh2Cost));
+
+	// The pool overload reaches the same value by a different allocation path
+	NXB::MemoryPool pool;
+	CHECK(NXB::ComputeSAHCost(bvh2, 0, pool.Handle()) == doctest::Approx(bvh2Cost));
+
+	NXB::BVH8 bvh8 = NXB::BuildBVH8<NXB::Triangle>(devicePrims.Get(), primCount, buildConfig);
+	const float bvh8Cost = NXB::ComputeSAHCost(bvh8);
+	REQUIRE(std::isfinite(bvh8Cost));
+	CHECK(bvh8Cost > 0.0f);
 }
 
 /*
@@ -268,8 +304,6 @@ TEST_CASE("Requesting metrics times every step of a BVH2 build")
 	float stepSum = metrics.computeSceneBoundsTime + metrics.computeMortonCodesTime
 		+ metrics.radixSortTime + metrics.bvhBuildTime;
 	CHECK(std::fabs(stepSum - metrics.totalTime) < 1e-3f);
-
-	CHECK(metrics.bvh2Cost > 0.0f);
 
 }
 
