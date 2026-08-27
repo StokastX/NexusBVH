@@ -1,39 +1,16 @@
 #pragma once
+
+#include <algorithm>
 #include <cstdint>
+#include <vector>
+
 #include "BVH.h"
 
 namespace NXB
 {
 	struct BVHBuildMetrics
 	{
-		BVHBuildMetrics& operator+=(const BVHBuildMetrics& other) {
-			computeSceneBoundsTime += other.computeSceneBoundsTime;
-			computeMortonCodesTime += other.computeMortonCodesTime;
-			radixSortTime += other.radixSortTime;
-			bvhBuildTime += other.bvhBuildTime;
-			bvh8ConversionTime += other.bvh8ConversionTime;
-			totalTime += other.totalTime;
-			bvh2Cost += other.bvh2Cost;
-			bvh8Cost += other.bvh8Cost;
-			averageChildPerNode += other.averageChildPerNode;
-			return *this;
-		}
-
-		BVHBuildMetrics operator/(float divisor) const {
-			BVHBuildMetrics result;
-			result.computeSceneBoundsTime = computeSceneBoundsTime / divisor;
-			result.computeMortonCodesTime = computeMortonCodesTime / divisor;
-			result.radixSortTime = radixSortTime / divisor;
-			result.bvhBuildTime = bvhBuildTime / divisor;
-			result.bvh8ConversionTime = bvh8ConversionTime / divisor;
-			result.totalTime = totalTime / divisor;
-			result.bvh2Cost = bvh2Cost / divisor;
-			result.bvh8Cost = bvh8Cost / divisor;
-			result.averageChildPerNode = averageChildPerNode / divisor;
-			return result;
-		}
-
-		// Timings
+		// Timings, in milliseconds
 		float computeSceneBoundsTime = 0.0f;
 		float computeMortonCodesTime = 0.0f;
 		float radixSortTime = 0.0f;
@@ -49,60 +26,140 @@ namespace NXB
 		float averageChildPerNode = 0.0f;
 	};
 
+
+	namespace Detail
+	{
+		// Every field of BVHBuildMetrics, so the reductions below state the list once
+		// instead of once per statistic
+		inline constexpr float BVHBuildMetrics::* metricFields[] = {
+			&BVHBuildMetrics::computeSceneBoundsTime,
+			&BVHBuildMetrics::computeMortonCodesTime,
+			&BVHBuildMetrics::radixSortTime,
+			&BVHBuildMetrics::bvhBuildTime,
+			&BVHBuildMetrics::bvh8ConversionTime,
+			&BVHBuildMetrics::totalTime,
+			&BVHBuildMetrics::bvh2Cost,
+			&BVHBuildMetrics::bvh8Cost,
+			&BVHBuildMetrics::averageChildPerNode
+		};
+	}
+
 	/*
-	 * \brief Benchmark the BVH build function
-	 * 
+	 * Reductions over a set of samples.
+	 *
+	 * Each field is reduced independently, so the result does not correspond to any one
+	 * iteration. That is the right thing for per-step timings, but it means only Mean
+	 * preserves the identity `sum of steps == totalTime`: the median of a sum is not the
+	 * sum of the medians. All three return a zeroed struct for an empty sample set rather
+	 * than dividing by zero.
+	 */
+
+	inline BVHBuildMetrics Mean(const std::vector<BVHBuildMetrics>& samples)
+	{
+		BVHBuildMetrics result = {};
+		if (samples.empty())
+			return result;
+
+		for (float BVHBuildMetrics::* field : Detail::metricFields)
+		{
+			float sum = 0.0f;
+			for (const BVHBuildMetrics& sample : samples)
+				sum += sample.*field;
+
+			result.*field = sum / (float)samples.size();
+		}
+		return result;
+	}
+
+	// More robust than the mean for kernel timings: one descheduled iteration or a driver
+	// interrupt skews an average, but moves a median by nothing
+	inline BVHBuildMetrics Median(std::vector<BVHBuildMetrics> samples)
+	{
+		BVHBuildMetrics result = {};
+		if (samples.empty())
+			return result;
+
+		std::vector<float> values(samples.size());
+		for (float BVHBuildMetrics::* field : Detail::metricFields)
+		{
+			for (size_t i = 0; i < samples.size(); ++i)
+				values[i] = samples[i].*field;
+
+			std::sort(values.begin(), values.end());
+
+			const size_t mid = values.size() / 2;
+			result.*field = (values.size() % 2 == 0)
+				? 0.5f * (values[mid - 1] + values[mid])
+				: values[mid];
+		}
+		return result;
+	}
+
+	// The fastest iteration observed, i.e. the run least disturbed by everything else on
+	// the machine. Usually the number worth quoting for a kernel.
+	inline BVHBuildMetrics Min(const std::vector<BVHBuildMetrics>& samples)
+	{
+		BVHBuildMetrics result = {};
+		if (samples.empty())
+			return result;
+
+		for (float BVHBuildMetrics::* field : Detail::metricFields)
+		{
+			float best = samples.front().*field;
+			for (const BVHBuildMetrics& sample : samples)
+				best = std::min(best, sample.*field);
+
+			result.*field = best;
+		}
+		return result;
+	}
+
+
+	/*
+	 * \brief Benchmark a BVH build function
+	 *
 	 * \param func The build function to benchmark
-	 * \param warmupIterations The number of dummy calls to func to warm up the device
-	 * \param measuredIterations The number of iterations used to measure the metrics
-	 * \param args the arguments needed by func
-	 * 
-	 * \returns The average timing (in milliseconds) of every building step
+	 * \param warmupIterations Dummy calls to func, discarded, to warm the device up
+	 * \param measuredIterations The number of iterations that are kept
+	 * \param args The arguments needed by func, minus the trailing metrics pointer
+	 *
+	 * \returns One BVHBuildMetrics per measured iteration, in the order they ran
+	 *
+	 * Returns the raw samples rather than a summary: a mean alone hides variance and
+	 * cannot be turned back into a median or a minimum. Reduce them with Mean, Median or
+	 * Min above.
+	 *
+	 * This prints nothing. Reporting is the application's job -- include
+	 * NXB/BenchmarkReport.h if you want a ready made one.
+	 *
+	 * Note that passing a metrics pointer inserts sync points around every kernel, so a
+	 * measured build is measurably slower than the build a user actually gets.
 	 */
 	template<typename Func, typename ...Args>
-	BVHBuildMetrics BenchmarkBuild(Func&& func, uint32_t warmupIterations, uint32_t measuredIterations, Args && ...args)
+	std::vector<BVHBuildMetrics> BenchmarkBuild(Func&& func, uint32_t warmupIterations,
+		uint32_t measuredIterations, Args&& ...args)
 	{
-		BVHBuildMetrics aggregatedMetrics = {};
-		using ReturnT = decltype(func(std::forward<Args>(args)..., nullptr));
+		std::vector<BVHBuildMetrics> samples;
+		samples.reserve(measuredIterations);
 
-		std::cout << std::endl << "========== BENCHMARKING BVH BUILD ==========" << std::endl << std::endl;
-		// Warm-up: build several times
-		for (uint32_t i = 0; i < warmupIterations; ++i) {
-			BVHBuildMetrics dummy;
-			auto bvh = std::forward<Func>(func)(std::forward<Args>(args)..., &dummy);
-			FreeDeviceBVH(bvh);
-		}
-
-		for (uint32_t i = 0; i < measuredIterations; ++i) {
-			BVHBuildMetrics iterationMetrics = {};
-			auto bvh = std::forward<Func>(func)(std::forward<Args>(args)..., &iterationMetrics);
-			FreeDeviceBVH(bvh);
-			aggregatedMetrics += iterationMetrics;
-			std::cout << "Iteration " << i << ", total time: " << iterationMetrics.totalTime << " ms" << std::endl;
-		}
-		aggregatedMetrics = aggregatedMetrics / static_cast<float>(measuredIterations);
-
-		std::cout << std::endl << "========== BENCHMARK RESULTS ==========" << std::endl << std::endl;
-
-		std::cout << "Scene bounds: " << aggregatedMetrics.computeSceneBoundsTime << " ms" << std::endl;
-		std::cout << "Morton codes: " << aggregatedMetrics.computeMortonCodesTime << " ms" << std::endl;
-		std::cout << "Radix sort: " << aggregatedMetrics.radixSortTime << " ms" << std::endl;
-		std::cout << "BVH2 build time: " << aggregatedMetrics.bvhBuildTime << " ms" << std::endl;
-
-		if constexpr (std::is_same_v<ReturnT, BVH8>)
-			std::cout << "BVH8 conversion time: " << aggregatedMetrics.bvh8ConversionTime << " ms" << std::endl;
-
-		std::cout << "Total BVH build time: " << aggregatedMetrics.totalTime << " ms" << std::endl;
-
-		std::cout << std::endl << "BVH2 cost: " << aggregatedMetrics.bvh2Cost << std::endl;
-		if constexpr (std::is_same_v<ReturnT, BVH8>)
+		// args are named lvalues inside this function and are deliberately NOT forwarded:
+		// the loops below call func repeatedly, and forwarding would move the same
+		// arguments once per iteration.
+		for (uint32_t i = 0; i < warmupIterations; ++i)
 		{
-			std::cout << "BVH8 cost: " << aggregatedMetrics.bvh8Cost << std::endl;
-			std::cout << "Average children per node: " << aggregatedMetrics.averageChildPerNode << std::endl;
+			BVHBuildMetrics warmupMetrics = {};
+			auto bvh = func(args..., &warmupMetrics);
+			FreeDeviceBVH(bvh);
 		}
 
-		std::cout << std::endl << "========== BENCHMARKING DONE ==========" << std::endl << std::endl;
+		for (uint32_t i = 0; i < measuredIterations; ++i)
+		{
+			BVHBuildMetrics iterationMetrics = {};
+			auto bvh = func(args..., &iterationMetrics);
+			FreeDeviceBVH(bvh);
+			samples.push_back(iterationMetrics);
+		}
 
-		return aggregatedMetrics;
+		return samples;
 	}
 }

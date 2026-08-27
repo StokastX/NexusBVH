@@ -395,6 +395,11 @@ FodyWeavers.xsd
 **/compile_commands.json
 **.cmake
 
+# ...but the vendored doctest CMake modules are source, not build output. The blanket
+# **.cmake rule above would otherwise drop doctest.cmake (which carries a local patch)
+# and its companion doctestAddTests.cmake, leaving a fresh clone unable to configure.
+!tests/vendor/*.cmake
+
 # Local
 lib/*
 bin/*
