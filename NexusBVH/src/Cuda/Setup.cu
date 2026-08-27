@@ -25,7 +25,7 @@ namespace NXB
 		for (uint32_t i = primIdx; i < buildState.primCount; i += threadCount)
 		{
 			node.bounds = GetBounds(primitives[i]);
-			node.leftChild = INVALID_IDX;
+			node.leftChild = InvalidIdx;
 			node.rightChild = i;
 			buildState.nodes[i] = node;
 

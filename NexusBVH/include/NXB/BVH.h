@@ -1,18 +1,14 @@
 #pragma once
 
 #include <cstdint>
-#include "Math/CudaMath.h"
-#include "AABB.h"
 
-#define INVALID_IDX (uint32_t)(-1)
+#include <vector_types.h>
+
+#include "AABB.h"
 
 namespace NXB
 {
-	enum struct PrimType: unsigned char
-	{
-		AABB,
-		TRIANGLE
-	};
+	inline constexpr uint32_t InvalidIdx = ~0u;
 
 	struct BVH2
 	{
@@ -20,7 +16,7 @@ namespace NXB
 		{
 			AABB bounds;
 
-			// leftChild = INVALID_IDX if leaf node
+			// leftChild = InvalidIdx if leaf node
 			uint32_t leftChild;
 
 			// rightChild = primIdx if leaf node

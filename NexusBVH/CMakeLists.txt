@@ -16,7 +16,6 @@ file(GLOB src
     include/NXB/BVH.h
     include/NXB/Triangle.h
     include/NXB/AABB.h
-    include/NXB/Math/CudaMath.h
 
     src/BVHBuilder.cpp
 
@@ -33,6 +32,7 @@ file(GLOB src
     src/Cuda/Eval.h
     src/Cuda/Eval.cu
 
+    src/Math/CudaMath.h
     src/Math/Math.h
 )
 

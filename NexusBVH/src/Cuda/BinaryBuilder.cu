@@ -52,7 +52,7 @@ namespace NXB
 			clusterIdx = buildState.clusterIdx[start + index];
 
 		// Count of valid cluster indices among the threads that took part in the load
-		uint32_t validClusterCount = __popc(__ballot_sync(FULL_MASK, validLaneId && clusterIdx != INVALID_IDX));
+		uint32_t validClusterCount = __popc(__ballot_sync(FULL_MASK, validLaneId && clusterIdx != InvalidIdx));
 
 		return validClusterCount;
 	}
@@ -119,7 +119,7 @@ namespace NXB
 
 		clusterIdx = __shfl_sync(FULL_MASK, clusterIdx, shift);
 		if (shift == -1)
-			clusterIdx = INVALID_IDX;
+			clusterIdx = InvalidIdx;
 
 		clusterBounds = shfl_sync(FULL_MASK, clusterBounds, shift);
 
@@ -131,7 +131,7 @@ namespace NXB
 	{
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		uint2 minAreaIdx = make_uint2(INVALID_IDX);
+		uint2 minAreaIdx = make_uint2(InvalidIdx);
 
 		for (uint32_t r = 1; r <= SEARCH_RADIUS; r++)
 		{
@@ -176,7 +176,7 @@ namespace NXB
 		// Thread index in the warp
 		uint32_t laneWarpId = threadIdx.x & (WARP_SIZE - 1);
 
-		uint32_t clusterIdx = INVALID_IDX;
+		uint32_t clusterIdx = InvalidIdx;
 
 		// Load left and right child's cluster indices
 		uint32_t numLeft = LoadIndices(lStart, lEnd, clusterIdx, buildState, 0);
@@ -227,7 +227,7 @@ namespace NXB
 					previousId = atomicExch(&buildState.parentIdx[right], left);
 
 					// If right child has already reached parent
-					if (previousId != INVALID_IDX)
+					if (previousId != InvalidIdx)
 					{
 						split = right + 1;
 
@@ -242,7 +242,7 @@ namespace NXB
 					previousId = atomicExch(&buildState.parentIdx[left - 1], right);
 
 					// If left child has already reached parent
-					if (previousId != INVALID_IDX)
+					if (previousId != InvalidIdx)
 					{
 						split = left;
 
@@ -253,7 +253,7 @@ namespace NXB
 				}
 
 				// Stop traversal and let the other child reach the parent
-				if (previousId == INVALID_IDX)
+				if (previousId == InvalidIdx)
 					laneActive = false;
 			}
 

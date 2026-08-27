@@ -63,7 +63,7 @@ namespace NXB
 		while (epsilon >= threshold)
 		{
 			// Reset assignments
-			assignments = INVALID_IDX;
+			assignments = InvalidIdx;
 			// Reset bidders with slots ranging from 0 to 7
 			uint32_t bidders = 0x76543210;
 			uint32_t bidderCount = n;
@@ -105,7 +105,7 @@ namespace NXB
 	// It's actually way faster than auction and gives similar tracing times, so I might as well stick with it.
 	__device__ __forceinline__ void GreedyAssignment(float3 parentCentroid, uint32_t childNodes[8], uint32_t n, uint32_t& assignments, BVH8BuildState buildState)
 	{
-		assignments = INVALID_IDX;
+		assignments = InvalidIdx;
 		//uint32_t slotsAvailable = 0xff;
 
 		for (uint32_t c = 0; c < n; c++)
@@ -296,11 +296,11 @@ namespace NXB
 			uint32_t bvh8NodeIdx = (uint32_t)indexPair;
 
 			// If no work assigned, skip
-			if (bvh2NodeIdx == INVALID_IDX)
+			if (bvh2NodeIdx == InvalidIdx)
 				continue;
 
 			// If leaf node, create a new BVH8 leaf
-			if (bvh2Nodes[bvh2NodeIdx].leftChild == INVALID_IDX)
+			if (bvh2Nodes[bvh2NodeIdx].leftChild == InvalidIdx)
 			{
 				// For now, a leaf only contains one triangle
 				buildState.primIdx[bvh8NodeIdx] = bvh2Nodes[bvh2NodeIdx].rightChild;
@@ -332,7 +332,7 @@ namespace NXB
 				{
 					uint32_t idx = i == 0 ? msb : childCount;
 
-					if (bvh2Nodes[leftRightChild[first]].leftChild != INVALID_IDX)
+					if (bvh2Nodes[leftRightChild[first]].leftChild != InvalidIdx)
 						innerMask |= 1 << idx;
 
 					childNodes[idx] = leftRightChild[first];

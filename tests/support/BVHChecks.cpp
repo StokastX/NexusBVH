@@ -75,7 +75,7 @@ namespace NXB::Test
 
 			const BVH2::Node& node = hostBvh.nodes[nodeIdx];
 
-			if (node.leftChild == INVALID_IDX)
+			if (node.leftChild == InvalidIdx)
 			{
 				leafCount++;
 				if (node.rightChild >= primCount)

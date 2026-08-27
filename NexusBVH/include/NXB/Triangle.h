@@ -1,8 +1,9 @@
 #pragma once
 
+#include <math.h>
+
 #include <cuda_runtime.h>
 
-#include "Math/CudaMath.h"
 #include "AABB.h"
 
 namespace NXB
@@ -16,7 +17,7 @@ namespace NXB
 
 		__host__ __device__ float3 Centroid() const
 		{
-			return (v0 + v1 + v2) / 3.0f;
+			return make_float3((v0.x + v1.x + v2.x) / 3.0f, (v0.y + v1.y + v2.y) / 3.0f, (v0.z + v1.z + v2.z) / 3.0f);
 		}
 
 		__host__ __device__ AABB Bounds() const
@@ -27,21 +28,21 @@ namespace NXB
 		// Normal (not normalized)
 		__host__ __device__ float3 Normal() const
 		{
-			float3 edge0 = v1 - v0;
-			float3 edge1 = v2 - v0;
+			float3 edge0 = make_float3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+			float3 edge1 = make_float3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
 
-			return cross(edge0, edge1);
+			return make_float3(
+				edge0.y * edge1.z - edge0.z * edge1.y,
+				edge0.z * edge1.x - edge0.x * edge1.z,
+				edge0.x * edge1.y - edge0.y * edge1.x);
 		}
 
 		// See https://community.khronos.org/t/how-can-i-find-the-area-of-a-3d-triangle/49777/2
 		__host__ __device__ float Area() const
 		{
-			float3 edge0 = v1 - v0;
-			float3 edge1 = v2 - v0;
+			float3 normal = Normal();
 
-			float3 normal = cross(edge0, edge1);
-
-			return 0.5f * length(normal);
+			return 0.5f * sqrtf(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
 		}
 
 		float3 v0, v1, v2;

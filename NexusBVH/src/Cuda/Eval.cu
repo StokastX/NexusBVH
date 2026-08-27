@@ -21,7 +21,7 @@ namespace NXB
 		{
 			BVH2::Node node = bvh.nodes[nodeIdx];
 			float m = node.bounds.Area() / sceneBoundsArea;
-			if (node.leftChild != INVALID_IDX)
+			if (node.leftChild != InvalidIdx)
 				area = C_T * m;
 			else
 				area = C_I * m;
