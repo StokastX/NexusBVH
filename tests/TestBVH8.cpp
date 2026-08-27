@@ -15,14 +15,14 @@ using namespace NXB::Test;
 namespace
 {
 	/*
-	 * The BVH8 is checked more loosely than the BVH2: there is no ToHost(BVH8) and the
-	 * node encoding is not readable from host code, so what can be reached from here is
-	 * the node count, the leaf index list and the scene bounds.
+	 * The counts and the scene bounds are checked here; the hierarchy itself is checked by
+	 * ValidateBVH8, which walks it through the independent decoder in BVH8Decode.h rather
+	 * than through the builder's own helpers.
 	 *
-	 * Nothing below verifies that a node's quantized child bounds actually contain their
-	 * children, or that meta/e/p decode correctly. Closing that gap needs rays cast
-	 * against the tree and compared with brute force -- which is what the traversal tests
-	 * will do once traversal is part of the public API.
+	 * What none of it covers is traversal ORDER. This builder's slot convention shows up
+	 * in the order a ray visits children and nowhere in the stored data, so closing that
+	 * gap needs rays cast against the tree and compared with brute force -- which is what
+	 * the traversal tests will do once traversal is part of the public API.
 	 */
 	template <typename PrimT>
 	void BuildAndValidateBVH8(const std::vector<PrimT>& prims, NXB::BuildConfig buildConfig,
@@ -36,24 +36,21 @@ namespace
 		// Node counts are exact, not conservative: the allocation is sized at (4n - 1) / 7
 		// rounded up, and overrunning it would corrupt memory rather than fail loudly
 		const uint32_t maxNodeCount = (4 * primCount - 1 + 6) / 7;
-		CHECK(bvh.nodeCount > 0);
-		CHECK(bvh.nodeCount <= maxNodeCount);
-		CHECK(bvh.primCount == primCount);
-		CHECK(bvh.nodes != nullptr);
-		CHECK(bvh.primIdx != nullptr);
+		CHECK(bvh.NodeCount() > 0);
+		CHECK(bvh.NodeCount() <= maxNodeCount);
+		CHECK(bvh.PrimCount() == primCount);
+		CHECK(!bvh.Empty());
 
-		CheckValid(ValidateSceneBounds(bvh.bounds, ReferenceSceneBounds(prims)));
+		CheckValid(ValidateSceneBounds(bvh.Bounds(), ReferenceSceneBounds(prims)));
 
-		NXB::BVH8 hostBvh = NXB::ToHost(bvh);
+		NXB::BVH8::Host hostBvh = bvh.ToHost();
 
 		// Every primitive has to appear exactly once in the leaf index list
 		CheckValid(ValidatePrimIdxPermutation(
-			std::vector<uint32_t>(hostBvh.primIdx, hostBvh.primIdx + primCount), primCount));
+			hostBvh.primIdx, primCount));
 
 		CheckValid(ValidateBVH8(hostBvh, PrimBounds(prims)));
 
-		NXB::FreeHostBVH(hostBvh);
-		NXB::FreeDeviceBVH(bvh);
 	}
 
 	template <typename PrimT>

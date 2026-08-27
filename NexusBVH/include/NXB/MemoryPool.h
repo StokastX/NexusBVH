@@ -91,8 +91,15 @@ namespace NXB
 		// What BuildConfig::pool wants
 		cudaMemPool_t Handle() const { return m_pool; }
 
-		// Releases everything the pool holds beyond bytesToKeep, down to what is still in
-		// use. Call it when the VRAM is needed elsewhere; the next build re-acquires.
+		/* \brief Releases what the pool holds beyond bytesToKeep, down to what is in use
+		 *
+		 * Call it when the VRAM is needed elsewhere; the next build re-acquires.
+		 *
+		 * Only memory whose free has actually landed can be released, and a BVH releases
+		 * its buffers stream-ordered without synchronizing. So a caller that has just
+		 * destroyed a BVH and wants every byte of it back has to synchronize the stream it
+		 * was built on first -- otherwise the free is still queued and this keeps it.
+		 */
 		void TrimTo(size_t bytesToKeep = 0)
 		{
 			if (m_pool)
@@ -105,7 +112,7 @@ namespace NXB
 		// Bytes currently handed out to live allocations
 		uint64_t UsedBytes() const { return Attribute(cudaMemPoolAttrUsedMemCurrent); }
 
-		/* rief The most bytes ever live at once since the last ResetPeakUsedBytes
+		/* \brief The most bytes ever live at once since the last ResetPeakUsedBytes
 		 *
 		 * The peak working set of whatever ran in between, which for a build is every
 		 * buffer it holds simultaneously. Worth more than ReservedBytes for checking that
@@ -128,9 +135,10 @@ namespace NXB
 
 		void Reset()
 		{
-			// A destructor must not throw, so a failing destroy is swallowed
+			// A destructor must not throw, so a failing destroy is discarded -- through
+			// CudaDiscard, so it cannot poison the next CUDA call
 			if (m_pool)
-				cudaMemPoolDestroy(m_pool);
+				CudaDiscard(cudaMemPoolDestroy(m_pool));
 
 			m_pool = nullptr;
 		}

@@ -33,14 +33,14 @@ TEST_CASE("Empty input returns an empty BVH")
 	NXB::BuildConfig buildConfig;
 
 	NXB::BVH2 bvh2 = NXB::BuildBVH2<NXB::Triangle>(nullptr, 0, buildConfig);
-	CHECK(bvh2.nodes == nullptr);
-	CHECK(bvh2.nodeCount == 0);
-	CHECK(bvh2.primCount == 0);
+	CHECK(bvh2.Empty());
+	CHECK(bvh2.NodeCount() == 0);
+	CHECK(bvh2.PrimCount() == 0);
 
 	NXB::BVH8 bvh8 = NXB::BuildBVH8<NXB::Triangle>(nullptr, 0, buildConfig);
-	CHECK(bvh8.nodes == nullptr);
-	CHECK(bvh8.nodeCount == 0);
-	CHECK(bvh8.primCount == 0);
+	CHECK(bvh8.Empty());
+	CHECK(bvh8.NodeCount() == 0);
+	CHECK(bvh8.PrimCount() == 0);
 }
 
 /*
@@ -58,17 +58,13 @@ TEST_CASE("A build from a MemoryPool is still a valid build")
 	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	NXB::BVH2 deviceBvh2 = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
-	NXB::BVH2 hostBvh2 = NXB::ToHost(deviceBvh2);
+	NXB::BVH2::Host hostBvh2 = deviceBvh2.ToHost();
 	CheckValid(ValidateBVH2(hostBvh2));
 	CheckValid(ValidateSceneBounds(hostBvh2.bounds, ReferenceSceneBounds(triangles)));
-	NXB::FreeHostBVH(hostBvh2);
-	NXB::FreeDeviceBVH(deviceBvh2);
 
 	NXB::BVH8 deviceBvh8 = NXB::BuildBVH8<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
-	NXB::BVH8 hostBvh8 = NXB::ToHost(deviceBvh8);
+	NXB::BVH8::Host hostBvh8 = deviceBvh8.ToHost();
 	CheckValid(ValidateBVH8(hostBvh8, PrimBounds(triangles)));
-	NXB::FreeHostBVH(hostBvh8);
-	NXB::FreeDeviceBVH(deviceBvh8);
 }
 
 /*
@@ -94,7 +90,6 @@ TEST_CASE("A MemoryPool is reused across builds")
 
 	auto BuildAndFree = [&] {
 		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), primCount, buildConfig);
-		NXB::FreeDeviceBVH(bvh);
 	};
 
 	// A few builds first, to let the pool settle on the size this scene needs
@@ -131,7 +126,10 @@ TEST_CASE("A MemoryPool is reused across builds")
 	// And nothing a build allocated is still outstanding once its BVH has been freed
 	CHECK(pool.UsedBytes() == 0);
 
-	// The caller can have the VRAM back on demand, and the pool still works afterwards
+	// The caller can have the VRAM back on demand, and the pool still works afterwards.
+	// The synchronize is load bearing: the BVHs above released their buffers stream
+	// ordered, and TrimTo can only give back memory whose free has already landed.
+	NXB_CUDA_CHECK(cudaStreamSynchronize(0));
 	pool.TrimTo(0);
 	CHECK(pool.ReservedBytes() == 0);
 
@@ -160,7 +158,6 @@ TEST_CASE("A failed allocation throws instead of exiting")
 	try
 	{
 		NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(nullptr, primCount, buildConfig);
-		NXB::FreeDeviceBVH(bvh);
 	}
 	catch (const NXB::CudaError& error)
 	{
@@ -187,21 +184,26 @@ TEST_CASE("A failed allocation throws instead of exiting")
 	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
 	NXB::BVH2 deviceBvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), 1000, buildConfig);
-	REQUIRE(deviceBvh.nodes != nullptr);
+	REQUIRE(!deviceBvh.Empty());
 
-	NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);
+	NXB::BVH2::Host hostBvh = deviceBvh.ToHost();
 
 	CheckValid(ValidateBVH2(hostBvh));
 	CheckValid(ValidateSceneBounds(hostBvh.bounds, ReferenceSceneBounds(triangles)));
 
-	NXB::FreeHostBVH(hostBvh);
-	NXB::FreeDeviceBVH(deviceBvh);
 }
 
 /*
  * The build has to run on the stream the caller asked for, and drain it before
  * returning. Built at the large scene size on purpose: a tiny build can complete before
  * a missing synchronize would ever be observable, so this case would pass either way.
+ *
+ * Note the inner scope. A BVH2 releases its nodes on the stream it was built on, so it
+ * has to be destroyed before that stream is: freeing on a destroyed stream fails with
+ * cudaErrorInvalidResourceHandle, and a destructor can only discard that. Letting the BVH
+ * outlive the stream here is what surfaced the whole class of bug -- the discarded error
+ * stayed pending in the runtime and the NEXT test case in the same process died in cub
+ * with a bogus cudaErrorInvalidDevice.
  */
 TEST_CASE("Build on a caller owned stream")
 {
@@ -215,18 +217,21 @@ TEST_CASE("Build on a caller owned stream")
 	std::vector<NXB::Triangle> triangles = GenerateTriangles(largeScenePrimCount, largeSceneGridSize);
 	NXB::DeviceBuffer<NXB::Triangle> devicePrims(triangles);
 
-	NXB::BVH2 deviceBvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);
-	NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);
+	{
+		NXB::BVH2 deviceBvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), (uint32_t)triangles.size(), buildConfig);
+		NXB::BVH2::Host hostBvh = deviceBvh.ToHost();
 
-	CheckValid(ValidateBVH2(hostBvh));
-	CheckValid(ValidateSceneBounds(hostBvh.bounds, ReferenceSceneBounds(triangles)));
+		CheckValid(ValidateBVH2(hostBvh));
+		CheckValid(ValidateSceneBounds(hostBvh.bounds, ReferenceSceneBounds(triangles)));
 
-	// The build synchronizes its own stream, so it must have drained by now
-	CHECK(cudaStreamQuery(stream) == cudaSuccess);
+		// The build synchronizes its own stream, so it must have drained by now
+		CHECK(cudaStreamQuery(stream) == cudaSuccess);
+	}
 
-	NXB::FreeHostBVH(hostBvh);
-	NXB::FreeDeviceBVH(deviceBvh);
 	NXB_CUDA_CHECK(cudaStreamDestroy(stream));
+
+	// Nothing above may have left a failure pending for the next case in this process
+	CHECK(cudaGetLastError() == cudaSuccess);
 }
 
 /*
@@ -266,7 +271,6 @@ TEST_CASE("Requesting metrics times every step of a BVH2 build")
 
 	CHECK(metrics.bvh2Cost > 0.0f);
 
-	NXB::FreeDeviceBVH(bvh);
 }
 
 TEST_CASE("Requesting metrics times the collapse of a BVH8 build")
@@ -287,7 +291,6 @@ TEST_CASE("Requesting metrics times the collapse of a BVH8 build")
 		+ metrics.radixSortTime + metrics.bvhBuildTime + metrics.bvh8ConversionTime;
 	CHECK(std::fabs(stepSum - metrics.totalTime) < 1e-3f);
 
-	NXB::FreeDeviceBVH(bvh);
 }
 
 /*

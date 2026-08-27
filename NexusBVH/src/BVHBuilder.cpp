@@ -1,7 +1,5 @@
 #include "NXB/BVHBuilder.h"
 
-#include <memory>
-
 #include "NXB/DeviceBuffer.h"
 
 #include "Math/Math.h"
@@ -38,13 +36,17 @@ namespace NXB
 	/*
 	 * \brief Steps 2 to 4 of the pipeline: Morton codes, radix sort, H-PLOC merging
 	 *
-	 * buildState and bvh are taken by reference rather than by value: every copy below
+	 * buildState and view are taken by reference rather than by value: every copy below
 	 * is asynchronous and nothing is synchronized until the end of BuildBVH2, so any
 	 * host memory the driver reads from or writes into has to outlive that
 	 * synchronization. A by-value parameter or a returned local would already be gone.
+	 *
+	 * It fills a view rather than a BVH2 because the owner cannot exist yet: the node
+	 * buffer is still a local of BuildBVH2 here, and moving it in before the stream has
+	 * drained would move it out from under the copies still in flight.
 	 */
 	template <typename McT>
-	void BuildBVH2Impl(BVH2BuildState& buildState, BVH2& bvh, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
+	void BuildBVH2Impl(BVH2BuildState& buildState, BVH2::DeviceView& view, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics)
 	{
 		cudaStream_t stream = buildConfig.stream;
 		const uint32_t blockSize = 64;
@@ -96,20 +98,20 @@ namespace NXB
 		// ===============================================================================
 
 
-		bvh.primCount = buildState.primCount;
-		bvh.nodeCount = nodeCount;
-		bvh.nodes = buildState.nodes;
-		CopyToHostAsync(&bvh.bounds, buildState.sceneBounds, 1, stream);
+		view.primCount = buildState.primCount;
+		view.nodeCount = nodeCount;
+		view.nodes = buildState.nodes;
+		CopyToHostAsync(&view.bounds, buildState.sceneBounds, 1, stream);
 
 		if (buildMetrics)
 		{
 			buildMetrics->totalTime = buildMetrics->computeSceneBoundsTime + buildMetrics->computeMortonCodesTime
 				+ buildMetrics->radixSortTime + buildMetrics->bvhBuildTime;
 
-			// The cost kernel takes bvh by value and divides by its bounds area, so the
-			// readback above has to have landed before the launch
+			// The cost kernel takes the view by value and divides by its bounds area, so
+			// the readback above has to have landed before the launch
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
-			EvaluateCost(ComputeBVH2CostKernel, bvh.View(), nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
+			EvaluateCost(ComputeBVH2CostKernel, view, nodeCount, blockSize, &buildMetrics->bvh2Cost, buildConfig);
 		}
 	}
 
@@ -119,16 +121,16 @@ namespace NXB
 	{
 		cudaStream_t stream = buildConfig.stream;
 
-		BVH2 bvh;
-		bvh.nodes = nullptr;
-		bvh.nodeCount = 0;
-		bvh.primCount = 0;
-		bvh.bounds.Clear();
-
 		// Without this guard, primCount * 2 - 1 underflows to 0xFFFFFFFF and the
 		// allocation below throws for what is a legitimate, if empty, request.
 		if (primCount == 0)
-			return bvh;
+			return BVH2();
+
+		BVH2::DeviceView view = {};
+		view.nodes = nullptr;
+		view.nodeCount = 0;
+		view.primCount = 0;
+		view.bounds.Clear();
 
 		uint32_t nodeCount = primCount * 2 - 1;
 		BVH2BuildState buildState;
@@ -160,21 +162,19 @@ namespace NXB
 		// Step 2 - 4: Build BVH
 		// ==============================================================================
 		if (buildConfig.prioritizeSpeed)
-			BuildBVH2Impl<uint32_t>(buildState, bvh, buildConfig, buildMetrics);
+			BuildBVH2Impl<uint32_t>(buildState, view, buildConfig, buildMetrics);
 		else
-			BuildBVH2Impl<uint64_t>(buildState, bvh, buildConfig, buildMetrics);
+			BuildBVH2Impl<uint64_t>(buildState, view, buildConfig, buildMetrics);
 		// ==============================================================================
 
-		// bvh.bounds, and the host locals the copies above read from, are only settled
+		// view.bounds, and the host locals the copies above read from, are only settled
 		// once the stream has drained. Only this stream is synchronized: unrelated work
 		// the caller has in flight elsewhere keeps running.
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-		// bvh.nodes already points at it, and the caller releases it with FreeDeviceBVH.
-		// After the synchronize, so that a throw there still frees it.
-		nodes.Release();
-
-		return bvh;
+		// After the synchronize, so that a throw there releases the buffer rather than
+		// handing it to an owner that is never returned
+		return BVH2(std::move(nodes), view.primCount, view.bounds);
 	}
 
 	template <typename PrimT>
@@ -182,24 +182,21 @@ namespace NXB
 	{
 		cudaStream_t stream = buildConfig.stream;
 
-		BVH8 bvh8;
-		bvh8.nodes = nullptr;
-		bvh8.nodeCount = 0;
-		bvh8.primIdx = nullptr;
-		bvh8.primCount = 0;
-		bvh8.bounds.Clear();
-
 		if (primCount == 0)
-			return bvh8;
+			return BVH8();
 
+		/*
+		 * The BVH2 is scratch from here on: the collapse reads it, and it is released when
+		 * this owner goes out of scope at the end of the function. That free is stream
+		 * ordered on the build stream, so the collapse kernel is guaranteed to be done
+		 * reading the nodes by the time it happens.
+		 */
 		BVH2 bvh2 = BuildBVH2<PrimT>(primitives, primCount, buildConfig, buildMetrics);
-
-		// The BVH2 is scratch from here on: the collapse reads it, then it is released
-		DeviceBuffer<BVH2::Node> bvh2Nodes = DeviceBuffer<BVH2::Node>::Adopt(bvh2.nodes, bvh2.nodeCount, stream);
+		const BVH2::DeviceView bvh2View = bvh2.View();
 
 		BVH8BuildState buildState;
-		buildState.bvh2Nodes = bvh2Nodes.Get();
-		buildState.primCount = bvh2.primCount;
+		buildState.bvh2Nodes = bvh2View.nodes;
+		buildState.primCount = bvh2View.primCount;
 
 		// Worst case senario for a BVH8 built with H-PLOC collapsing: node count = (4n - 1) / 7.
 		// This occurs when each internal node in the level above the leaves contains only two leaf nodes
@@ -222,7 +219,7 @@ namespace NXB
 		// Init index pairs to -1, i.e. every byte set to 0xff
 		indexPairs.FillBytes(0xff);
 		// Set first index pair to root of bvh2 and root of bvh8
-		uint64_t firstPair = ((uint64_t)bvh2.nodeCount - 1) << 32;
+		uint64_t firstPair = ((uint64_t)bvh2View.nodeCount - 1) << 32;
 		indexPairs.UploadAsync(&firstPair, 1);
 		uint32_t nodeCount = 1;
 		nodeCounter.UploadAsync(&nodeCount, 1);
@@ -243,11 +240,8 @@ namespace NXB
 		}
 		// ===============================================================================
 
-		bvh8.nodes = bvh8Nodes.Get();
-		bvh8.primIdx = primIdx.Get();
-		bvh8.bounds = bvh2.bounds;
-		bvh8.primCount = buildState.primCount;
-		nodeCounter.DownloadAsync(&bvh8.nodeCount, 1);
+		uint32_t bvh8NodeCount = 0;
+		nodeCounter.DownloadAsync(&bvh8NodeCount, 1);
 
 		if (buildMetrics)
 		{
@@ -257,80 +251,19 @@ namespace NXB
 			// collapse produced, so the readback above has to have landed
 			NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-			EvaluateCost(ComputeBVH8CostKernel, bvh8.View(), bvh8.nodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
+			BVH8::DeviceView view{ bvh8Nodes.Get(), bvh8NodeCount, primIdx.Get(), buildState.primCount, bvh2View.bounds };
+			EvaluateCost(ComputeBVH8CostKernel, view, bvh8NodeCount, blockSize, &buildMetrics->bvh8Cost, buildConfig);
 
 			// Warning: this formula is only valid if a leaf node contains exactly one primitive
 			// Should be (totalNodes - 1) / internalNodes
-			buildMetrics->averageChildPerNode = (float)(bvh8.primCount + bvh8.nodeCount - 1) / bvh8.nodeCount;
+			buildMetrics->averageChildPerNode = (float)(buildState.primCount + bvh8NodeCount - 1) / bvh8NodeCount;
 		}
 
-		// The frees at the end of this scope are stream ordered, so the collapse kernel is
-		// guaranteed to be done reading the BVH2 nodes by the time they go.
+		// bvh8NodeCount is only settled once the readback above has landed
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-		bvh8Nodes.Release();
-		primIdx.Release();
-
-		return bvh8;
-	}
-
-	BVH2 ToHost(BVH2 deviceBvh)
-	{
-		BVH2 hostBvh = deviceBvh;
-
-		std::unique_ptr<BVH2::Node[]> nodes(new BVH2::Node[deviceBvh.nodeCount]);
-		CopyToHost(nodes.get(), deviceBvh.nodes, deviceBvh.nodeCount);
-
-		hostBvh.nodes = nodes.release();
-		return hostBvh;
-	}
-
-	BVH8 ToHost(BVH8 deviceBvh)
-	{
-		BVH8 hostBvh = deviceBvh;
-
-		std::unique_ptr<BVH8::Node[]> nodes(new BVH8::Node[deviceBvh.nodeCount]);
-		std::unique_ptr<uint32_t[]> primIdx(new uint32_t[deviceBvh.primCount]);
-		CopyToHost(nodes.get(), deviceBvh.nodes, deviceBvh.nodeCount);
-		CopyToHost(primIdx.get(), deviceBvh.primIdx, deviceBvh.primCount);
-
-		hostBvh.nodes = nodes.release();
-		hostBvh.primIdx = primIdx.release();
-		return hostBvh;
-	}
-
-	void FreeHostBVH(BVH2 hostBvh)
-	{
-		delete[] hostBvh.nodes;
-	}
-
-	void FreeHostBVH(BVH8 hostBvh)
-	{
-		delete[] hostBvh.nodes;
-		delete[] hostBvh.primIdx;
-	}
-
-	/*
-	 * The arrays always come from the async allocator, so they are released back to it
-	 * rather than with cudaFree. cudaFree does free them, but when the build allocated
-	 * from a BuildConfig::pool it returns them to the driver behind that pool's back,
-	 * leaving cudaMemPoolAttrUsedMemCurrent permanently overstated.
-	 *
-	 * These entry points take no stream. The null stream is safe regardless of the one the
-	 * build ran on, because a build synchronizes its stream before handing the BVH over,
-	 * so nothing is still reading these arrays.
-	 */
-	void FreeDeviceBVH(BVH2 deviceBvh)
-	{
-		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.nodes, 0));
-		NXB_CUDA_CHECK(cudaStreamSynchronize(0));
-	}
-
-	void FreeDeviceBVH(BVH8 deviceBvh)
-	{
-		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.nodes, 0));
-		NXB_CUDA_CHECK(cudaFreeAsync(deviceBvh.primIdx, 0));
-		NXB_CUDA_CHECK(cudaStreamSynchronize(0));
+		return BVH8(std::move(bvh8Nodes), std::move(primIdx), bvh8NodeCount,
+			buildState.primCount, bvh2View.bounds);
 	}
 
 	template BVH2 BuildBVH2<Triangle>(Triangle* primitives, uint32_t primCount, BuildConfig buildConfig, BVHBuildMetrics* buildMetrics);

@@ -88,9 +88,9 @@ namespace NXB
 			}
 			catch (...)
 			{
-				cudaEventDestroy(m_start);
+				CudaDiscard(cudaEventDestroy(m_start));
 				if (m_stop)
-					cudaEventDestroy(m_stop);
+					CudaDiscard(cudaEventDestroy(m_stop));
 				throw;
 			}
 		}
@@ -105,10 +105,12 @@ namespace NXB
 			// terminate. A failure inside the scope has already been reported by the launch
 			// that raised it, and the only casualty here is one metrics number.
 			if (cudaEventRecord(m_stop, m_stream) == cudaSuccess && cudaEventSynchronize(m_stop) == cudaSuccess)
-				cudaEventElapsedTime(m_dst, m_start, m_stop);
+				CudaDiscard(cudaEventElapsedTime(m_dst, m_start, m_stop));
+			else
+				cudaGetLastError();
 
-			cudaEventDestroy(m_start);
-			cudaEventDestroy(m_stop);
+			CudaDiscard(cudaEventDestroy(m_start));
+			CudaDiscard(cudaEventDestroy(m_stop));
 		}
 
 		StepTimer(const StepTimer&) = delete;

@@ -32,11 +32,11 @@ namespace NXB::Test
 	}
 
 
-	ValidationResult ValidateBVH2(const BVH2& hostBvh)
+	ValidationResult ValidateBVH2(const BVH2::Host& hostBvh)
 	{
 		ValidationResult result;
 
-		const uint32_t nodeCount = hostBvh.nodeCount;
+		const uint32_t nodeCount = (uint32_t)hostBvh.nodes.size();
 		const uint32_t primCount = hostBvh.primCount;
 
 		if (nodeCount != primCount * 2 - 1)

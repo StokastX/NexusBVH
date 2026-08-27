@@ -52,9 +52,9 @@ namespace NXB::Test
 	 * parent box containing its children, every primitive referenced exactly once, and
 	 * no node reached twice.
 	 *
-	 * Takes a host side BVH2, i.e. the result of NXB::ToHost.
+	 * Takes a host side BVH2, i.e. the result of BVH2::ToHost.
 	 */
-	ValidationResult ValidateBVH2(const BVH2& hostBvh);
+	ValidationResult ValidateBVH2(const BVH2::Host& hostBvh);
 
 	// Checks the scene bounds the builder reported against a host computed reference
 	ValidationResult ValidateSceneBounds(const AABB& reported, const AABB& expected);
@@ -75,7 +75,7 @@ namespace NXB::Test
 	 * true bounds of what sits below it, without being more than a quantization cell
 	 * larger than it, and that each node grid spans its node in 255 cells.
 	 *
-	 * Takes a host side BVH8, i.e. the result of NXB::ToHost.
+	 * Takes a host side BVH8, i.e. the result of BVH8::ToHost.
 	 */
-	ValidationResult ValidateBVH8(const BVH8& hostBvh, const std::vector<AABB>& primBounds);
+	ValidationResult ValidateBVH8(const BVH8::Host& hostBvh, const std::vector<AABB>& primBounds);
 }

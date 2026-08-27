@@ -148,15 +148,15 @@ namespace NXB
 		for (uint32_t i = 0; i < warmupIterations; ++i)
 		{
 			BVHBuildMetrics warmupMetrics = {};
-			auto bvh = func(args..., &warmupMetrics);
-			FreeDeviceBVH(bvh);
+
+			// The BVH returned owns its memory and releases it at the end of the iteration
+			func(args..., &warmupMetrics);
 		}
 
 		for (uint32_t i = 0; i < measuredIterations; ++i)
 		{
 			BVHBuildMetrics iterationMetrics = {};
-			auto bvh = func(args..., &iterationMetrics);
-			FreeDeviceBVH(bvh);
+			func(args..., &iterationMetrics);
 			samples.push_back(iterationMetrics);
 		}
 

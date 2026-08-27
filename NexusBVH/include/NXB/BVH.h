@@ -2,17 +2,29 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <vector_types.h>
 
 #include "AABB.h"
+#include "DeviceBuffer.h"
 
 namespace NXB
 {
 	inline constexpr uint32_t InvalidIdx = ~0u;
 
-	struct BVH2
+	/* \brief Owns the device memory of a binary BVH
+	 *
+	 * Move only. The destructor releases the node array on the stream it was allocated on
+	 * and back into the pool it came from, so neither has to be remembered by the caller.
+	 *
+	 * Pass View() into a kernel, ToHost() to read it back. Release() opts out and hands
+	 * the raw arrays over, for a caller that would rather own them itself.
+	 */
+	class BVH2
 	{
+	public:
 		struct Node
 		{
 			AABB bounds;
@@ -24,12 +36,11 @@ namespace NXB
 			uint32_t rightChild;
 		};
 
-		/* rief What a kernel receives
+		/* \brief What a kernel receives
 		 *
 		 * Kernel parameters are bitwise copied into parameter space, so they have to be
-		 * trivially copyable -- which an owning type is not. This is the value the owner
-		 * will hand out once BVH2 itself owns its memory; the pointer inside it belongs
-		 * to that owner and does not outlive it.
+		 * trivially copyable -- which an owning type is not. The pointer inside a view
+		 * belongs to the BVH2 that handed it out and must not outlive it.
 		 */
 		struct DeviceView
 		{
@@ -41,22 +52,81 @@ namespace NXB
 			AABB bounds;
 		};
 
-		DeviceView View() const { return DeviceView{ nodes, nodeCount, primCount, bounds }; }
+		// A host side copy that releases itself
+		struct Host
+		{
+			std::vector<Node> nodes;
+			uint32_t primCount = 0;
 
-		Node* nodes;
-		uint32_t nodeCount;
-		uint32_t primCount;
+			// Root bounds
+			AABB bounds;
+		};
 
-		// Root bounds
-		AABB bounds;
+		BVH2() { m_bounds.Clear(); }
+
+		BVH2(DeviceBuffer<Node>&& nodes, uint32_t primCount, const AABB& bounds)
+			: m_nodes(std::move(nodes)), m_primCount(primCount), m_bounds(bounds) { }
+
+		BVH2(const BVH2&) = delete;
+		BVH2& operator=(const BVH2&) = delete;
+		BVH2(BVH2&&) noexcept = default;
+		BVH2& operator=(BVH2&&) noexcept = default;
+
+		DeviceView View() const
+		{
+			return DeviceView{ m_nodes.Get(), (uint32_t)m_nodes.Count(), m_primCount, m_bounds };
+		}
+
+		Host ToHost() const
+		{
+			Host host;
+			host.nodes = m_nodes.ToHost();
+			host.primCount = m_primCount;
+			host.bounds = m_bounds;
+			return host;
+		}
+
+		// Gives up ownership. The caller is then responsible for the node array, which
+		// came from the async allocator and has to go back to it with cudaFreeAsync.
+		DeviceView Release()
+		{
+			DeviceView view = View();
+			m_nodes.Release();
+			m_primCount = 0;
+			m_bounds.Clear();
+			return view;
+		}
+
+		// Takes ownership of arrays this class did not allocate
+		static BVH2 Adopt(const DeviceView& view, cudaStream_t stream = 0)
+		{
+			return BVH2(DeviceBuffer<Node>::Adopt(view.nodes, view.nodeCount, stream),
+				view.primCount, view.bounds);
+		}
+
+		uint32_t NodeCount() const { return (uint32_t)m_nodes.Count(); }
+		uint32_t PrimCount() const { return m_primCount; }
+		const AABB& Bounds() const { return m_bounds; }
+		bool Empty() const { return m_nodes.Get() == nullptr; }
+
+	private:
+		DeviceBuffer<Node> m_nodes;
+		uint32_t m_primCount = 0;
+		AABB m_bounds;
 	};
 
 	static_assert(std::is_trivially_copyable<BVH2::DeviceView>::value,
 		"BVH2::DeviceView is passed by value into kernels and must stay trivially copyable");
 
-	// Compressed wide BVH (See Ylitie et al.)
-	struct BVH8
+	/* \brief Owns the device memory of a compressed wide BVH (See Ylitie et al.)
+	 *
+	 * Same contract as BVH2, over two arrays. Note that the node array is allocated at the
+	 * (4n - 1) / 7 worst case while NodeCount() is what the collapse actually produced, so
+	 * the two differ -- ToHost copies only the nodes that exist.
+	 */
+	class BVH8
 	{
+	public:
 		struct NodeExplicit
 		{
 			// Origin point of the local grid
@@ -116,16 +186,79 @@ namespace NXB
 			AABB bounds;
 		};
 
-		DeviceView View() const { return DeviceView{ nodes, nodeCount, primIdx, primCount, bounds }; }
+		// A host side copy that releases itself. nodes.size() is the node count.
+		struct Host
+		{
+			std::vector<Node> nodes;
+			std::vector<uint32_t> primIdx;
+			uint32_t primCount = 0;
 
-		Node* nodes;
-		uint32_t nodeCount;
+			// Root bounds
+			AABB bounds;
+		};
 
-		uint32_t* primIdx;
-		uint32_t primCount;
+		BVH8() { m_bounds.Clear(); }
 
-		// Root bounds
-		AABB bounds;
+		BVH8(DeviceBuffer<Node>&& nodes, DeviceBuffer<uint32_t>&& primIdx,
+			uint32_t nodeCount, uint32_t primCount, const AABB& bounds)
+			: m_nodes(std::move(nodes)), m_primIdx(std::move(primIdx)),
+			  m_nodeCount(nodeCount), m_primCount(primCount), m_bounds(bounds) { }
+
+		BVH8(const BVH8&) = delete;
+		BVH8& operator=(const BVH8&) = delete;
+		BVH8(BVH8&&) noexcept = default;
+		BVH8& operator=(BVH8&&) noexcept = default;
+
+		DeviceView View() const
+		{
+			return DeviceView{ m_nodes.Get(), m_nodeCount, m_primIdx.Get(), m_primCount, m_bounds };
+		}
+
+		Host ToHost() const
+		{
+			Host host;
+			host.nodes.resize(m_nodeCount);
+			m_nodes.Download(host.nodes.data(), m_nodeCount);
+			host.primIdx = m_primIdx.ToHost();
+			host.primCount = m_primCount;
+			host.bounds = m_bounds;
+			return host;
+		}
+
+		// See BVH2::Release
+		DeviceView Release()
+		{
+			DeviceView view = View();
+			m_nodes.Release();
+			m_primIdx.Release();
+			m_nodeCount = 0;
+			m_primCount = 0;
+			m_bounds.Clear();
+			return view;
+		}
+
+		/* \param allocatedNodeCount How many nodes the array behind view.nodes holds. It
+		 *        is the (4n - 1) / 7 bound rather than view.nodeCount for an array this
+		 *        library produced, and only matters to the free.
+		 */
+		static BVH8 Adopt(const DeviceView& view, size_t allocatedNodeCount, cudaStream_t stream = 0)
+		{
+			return BVH8(DeviceBuffer<Node>::Adopt(view.nodes, allocatedNodeCount, stream),
+				DeviceBuffer<uint32_t>::Adopt(view.primIdx, view.primCount, stream),
+				view.nodeCount, view.primCount, view.bounds);
+		}
+
+		uint32_t NodeCount() const { return m_nodeCount; }
+		uint32_t PrimCount() const { return m_primCount; }
+		const AABB& Bounds() const { return m_bounds; }
+		bool Empty() const { return m_nodes.Get() == nullptr; }
+
+	private:
+		DeviceBuffer<Node> m_nodes;
+		DeviceBuffer<uint32_t> m_primIdx;
+		uint32_t m_nodeCount = 0;
+		uint32_t m_primCount = 0;
+		AABB m_bounds;
 	};
 
 	static_assert(std::is_trivially_copyable<BVH8::DeviceView>::value,

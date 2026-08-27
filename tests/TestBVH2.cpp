@@ -20,13 +20,11 @@ namespace
 		NXB::DeviceBuffer<PrimT> devicePrims(prims);
 
 		NXB::BVH2 deviceBvh = NXB::BuildBVH2<PrimT>(devicePrims.Get(), (uint32_t)prims.size(), buildConfig);
-		NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);
+		NXB::BVH2::Host hostBvh = deviceBvh.ToHost();
 
 		CheckValid(ValidateBVH2(hostBvh));
 		CheckValid(ValidateSceneBounds(hostBvh.bounds, ReferenceSceneBounds(prims)));
 
-		NXB::FreeHostBVH(hostBvh);
-		NXB::FreeDeviceBVH(deviceBvh);
 	}
 }
 

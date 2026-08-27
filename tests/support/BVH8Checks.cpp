@@ -22,7 +22,7 @@ namespace NXB::Test
 		 */
 		struct Bvh8Walk
 		{
-			const BVH8& bvh;
+			const BVH8::Host& bvh;
 			const std::vector<AABB>& primBounds;
 			ValidationResult& result;
 
@@ -108,7 +108,7 @@ namespace NXB::Test
 			if (aborted)
 				return exact;
 
-			if (nodeIdx >= bvh.nodeCount)
+			if (nodeIdx >= bvh.nodes.size())
 			{
 				Abort("node index " + std::to_string(nodeIdx) + " out of range");
 				return exact;
@@ -210,11 +210,11 @@ namespace NXB::Test
 	}
 
 
-	ValidationResult ValidateBVH8(const BVH8& hostBvh, const std::vector<AABB>& primBounds)
+	ValidationResult ValidateBVH8(const BVH8::Host& hostBvh, const std::vector<AABB>& primBounds)
 	{
 		ValidationResult result;
 
-		if (hostBvh.nodeCount == 0 || hostBvh.nodes == nullptr || hostBvh.primIdx == nullptr)
+		if (hostBvh.nodes.empty() || hostBvh.primIdx.empty())
 		{
 			result.Add("BVH8 handle is empty");
 			return result;
@@ -226,11 +226,13 @@ namespace NXB::Test
 		}
 
 		Bvh8Walk walk{ hostBvh, primBounds, result };
-		walk.decoded.reserve(hostBvh.nodeCount);
-		for (uint32_t i = 0; i < hostBvh.nodeCount; i++)
+		const uint32_t nodeCount = (uint32_t)hostBvh.nodes.size();
+
+		walk.decoded.reserve(nodeCount);
+		for (uint32_t i = 0; i < nodeCount; i++)
 			walk.decoded.push_back(DecodeNode(hostBvh.nodes[i]));
 
-		walk.nodeVisited.assign(hostBvh.nodeCount, false);
+		walk.nodeVisited.assign(nodeCount, false);
 		walk.primSlotRefCount.assign(hostBvh.primCount, 0);
 
 		const AABB exact = walk.Visit(0);
@@ -253,8 +255,8 @@ namespace NXB::Test
 		uint32_t reached = 0;
 		for (bool visited : walk.nodeVisited)
 			reached += visited ? 1 : 0;
-		if (reached != hostBvh.nodeCount)
-			result.Add(std::to_string(reached) + " nodes reached, " + std::to_string(hostBvh.nodeCount) + " reported");
+		if (reached != nodeCount)
+			result.Add(std::to_string(reached) + " nodes reached, " + std::to_string(nodeCount) + " reported");
 
 		uint32_t unusedSlots = 0;
 		uint32_t duplicatedSlots = 0;

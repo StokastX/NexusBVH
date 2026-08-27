@@ -72,6 +72,13 @@ doctest_discover_tests(NexusBVHTests
 	ADD_LABELS 1
 )
 
+# ...but that runs every case in its OWN process, which structurally cannot catch state
+# one case leaks into the next: a CUDA error left pending in the runtime's per thread slot,
+# a context left in a bad state, a pool destroyed with allocations outstanding. Running the
+# whole binary once, the way Visual Studio's F5 does, is the only thing that sees it.
+add_test(NAME "All cases in one process" COMMAND NexusBVHTests)
+set_tests_properties("All cases in one process" PROPERTIES LABELS "slow")
+
 # Set the test runner as startup project in Visual Studio
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT NexusBVHTests)
 

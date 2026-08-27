@@ -153,11 +153,17 @@ namespace NXB
 
 		void Reset()
 		{
-			// cudaFreeAsync returns the block to whichever pool it was taken from, so this
-			// needs no knowledge of the pool the constructor used.
-			// A destructor must not throw, so a failing free is swallowed
+			/*
+			 * cudaFreeAsync returns the block to whichever pool it was taken from, so this
+			 * needs no knowledge of the pool the constructor used.
+			 *
+			 * A destructor must not throw, so a failing free is discarded rather than
+			 * checked. It can genuinely fail: freeing on a stream the caller has already
+			 * destroyed gives cudaErrorInvalidResourceHandle, which is why this has to go
+			 * through CudaDiscard rather than merely ignore the return value.
+			 */
 			if (m_ptr != nullptr)
-				cudaFreeAsync(m_ptr, m_stream);
+				CudaDiscard(cudaFreeAsync(m_ptr, m_stream));
 
 			m_ptr = nullptr;
 			m_count = 0;

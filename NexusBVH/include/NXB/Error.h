@@ -45,6 +45,24 @@ namespace NXB
 		throw CudaError(result, std::string(cudaGetErrorName(result)) + " (" + cudaGetErrorString(result) + ")"
 			+ " at " + file + ":" + std::to_string(line) + " in '" + expression + "'");
 	}
+
+
+	/*
+	 * For the paths that must not throw -- destructors, and anything running during stack
+	 * unwinding -- where the only options are to swallow the failure or to terminate.
+	 *
+	 * Swallowing the return value is NOT enough on its own. The failure also sits in the
+	 * runtime's per thread error slot, and the next call that inspects that slot inherits
+	 * it: cub::Debug() substitutes cudaGetLastError() for a call that returned success, so
+	 * a leaked error here makes the following build read CurrentDevice() as -1 and fail
+	 * with cudaErrorInvalidDevice from somewhere entirely unrelated. Consuming it is what
+	 * keeps the failure local to the object that caused it.
+	 */
+	inline void CudaDiscard(cudaError_t result)
+	{
+		if (result != cudaSuccess)
+			cudaGetLastError();
+	}
 }
 
 #define NXB_CUDA_CHECK(val) ::NXB::CudaCheck((val), #val, __FILE__, __LINE__)

@@ -15,9 +15,13 @@ namespace NXB
 	 * already released everything it allocated, so catching it leaks nothing and the
 	 * caller is free to retry with fewer primitives.
 	 *
-	 * The primitive pointers are DEVICE pointers, and the BVH2 / BVH8 handles returned
-	 * hold device pointers too. NXB::DeviceBuffer is the RAII way to produce the former;
-	 * the latter are released with FreeDeviceBVH.
+	 * The primitive pointers are DEVICE pointers. NXB::DeviceBuffer is the RAII way to
+	 * produce them.
+	 *
+	 * The BVH2 / BVH8 returned OWN their device memory and release it when they go out of
+	 * scope, on the stream they were built on and back into the pool they came from. They
+	 * are move only. Pass bvh.View() into a kernel, bvh.ToHost() to read the hierarchy
+	 * back on the host, and bvh.Release() to opt out and take the arrays over yourself.
 	 */
 
 	/* \brief Builds a binary BVH from a list of primitives
@@ -27,7 +31,7 @@ namespace NXB
 	 * \param buildConfig The build configuration
 	 * \param buildMetrics The build metrics. If different from nullptr, kernel execution times will be measured which results in a slower build
 	 *
-	 * \returns A pointer to the device instance of the newly created binary BVH
+	 * \returns The newly built binary BVH, owning its device memory
 	 */
 	template <typename PrimT>
 	BVH2 BuildBVH2(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
@@ -39,46 +43,10 @@ namespace NXB
 	 * \param buildConfig The build configuration
 	 * \param buildMetrics The build metrics. If different from nullptr, kernel execution times will be measured which results in a slower build
 	 *
-	 * \returns A pointer to the device instance of the newly created binary BVH
+	 * \returns The newly built wide BVH, owning its device memory
 	 */
 	template <typename PrimT>
 	BVH8 BuildBVH8(PrimT* primitives, uint32_t primCount, BuildConfig buildConfig = BuildConfig(), BVHBuildMetrics* buildMetrics = nullptr);
 
-
-	/* \brief Transfer BVH to CPU
-	 *
-	 * \param binaryBVH The binary BVH to be transferred
-	 *
-	 * \returns A CPU BVH instance
-	 */
-	BVH2 ToHost(BVH2 deviceBvh);
-
-	/* \brief Transfer BVH to CPU
-	 *
-	 * \param wideBVH The compressed wide BVH to be transferred
-	 *
-	 * \returns A CPU BVH instance
-	 */
-	BVH8 ToHost(BVH8 deviceBvh);
-
-	/*
-	 * \brief Free the host instance of the binary BVH
-	 */
-	void FreeHostBVH(BVH2 hostBvh);
-
-	/*
-	 * \brief Free the host instance of the compressed wide BVH
-	 */
-	void FreeHostBVH(BVH8 hostBvh);
-
-	/*
-	 * \brief Free the device instance of the binary BVH
-	 */
-	void FreeDeviceBVH(BVH2 deviceBvh);
-
-	/*
-	 * \brief Free the device instance of the compressed wide BVH
-	 */
-	void FreeDeviceBVH(BVH8 deviceBvh);
 
 }
