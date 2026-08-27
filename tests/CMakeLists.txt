@@ -12,8 +12,6 @@ set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 file(GLOB supportSrc
 	support/BVHChecks.h
 	support/BVHChecks.cpp
-	support/CudaTestCheck.h
-	support/DeviceBuffer.h
 	support/Scenes.h
 	support/Scenes.cpp
 	support/TestConfig.h

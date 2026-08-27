@@ -3,7 +3,8 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <device_launch_parameters.h>
 
-#include "CudaUtils.h"
+#include <utility>
+
 #include "Launch.h"
 #include "BuilderUtils.h"
 
@@ -61,16 +62,16 @@ namespace NXB
 
 
 	template <typename McT>
-	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics)
+	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
+		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics)
 	{
 		size_t tempStorageBytes = 0;
-		void* tempStorage = nullptr;
 
-		McT* mortonCodesSorted = CudaMemory::AllocAsync<McT>(buildState.primCount, stream);
-		uint32_t* clusteridxSorted = CudaMemory::AllocAsync<uint32_t>(buildState.primCount, stream);
+		DeviceBuffer<McT> mortonCodesSorted(buildState.primCount, stream);
+		DeviceBuffer<uint32_t> clusterIdxSorted(buildState.primCount, stream);
 
-		cub::DoubleBuffer<McT> keysBuffer(mortonCodes, mortonCodesSorted);
-		cub::DoubleBuffer<uint32_t> valuesBuffer(buildState.clusterIdx, clusteridxSorted);
+		cub::DoubleBuffer<McT> keysBuffer(mortonCodes.Get(), mortonCodesSorted.Get());
+		cub::DoubleBuffer<uint32_t> valuesBuffer(clusterIdx.Get(), clusterIdxSorted.Get());
 
 		uint32_t startBit, endBit;
 		if constexpr (std::is_same_v<McT, uint32_t>)
@@ -79,24 +80,26 @@ namespace NXB
 			startBit = 1, endBit = 64;
 
 		// Get the temporary storage size necessary to perform radix sorting
-		cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream);
+		NXB_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(nullptr, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream));
 
-		tempStorage = CudaMemory::AllocAsync<uint8_t>(tempStorageBytes, stream);
+		DeviceBuffer<uint8_t> tempStorage(tempStorageBytes, stream);
 
 		// Perform radix sorting
 		{
 			StepTimer timer(MetricPtr(buildMetrics, &BVHBuildMetrics::radixSortTime), stream);
 
-			cub::DeviceRadixSort::SortPairs(tempStorage, tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream);
+			NXB_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(tempStorage.Get(), tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream));
 		}
 
-		mortonCodes = keysBuffer.Current();
-		buildState.clusterIdx = valuesBuffer.Current();
+		// cub may have left the sorted data in either half. Where it picked the scratch
+		// half, swap the owners so the caller's buffer owns the result and the local one
+		// owns the discard, which its destructor then releases.
+		if (keysBuffer.Current() != mortonCodes.Get())
+			std::swap(mortonCodes, mortonCodesSorted);
+		if (valuesBuffer.Current() != clusterIdx.Get())
+			std::swap(clusterIdx, clusterIdxSorted);
 
-		CudaMemory::FreeAsync(tempStorage, stream);
-
-		CudaMemory::FreeAsync(keysBuffer.Alternate(), stream);
-		CudaMemory::FreeAsync(valuesBuffer.Alternate(), stream);
+		buildState.clusterIdx = clusterIdx.Get();
 	}
 
 	template __global__ void ComputeSceneBoundsKernel<Triangle>(BVH2BuildState buildState, Triangle* primitives);
@@ -105,6 +108,8 @@ namespace NXB
 	template __global__ void ComputeMortonCodesKernel<uint32_t>(BVH2BuildState buildState, uint32_t* mortonCodes);
 	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 
-	template void RadixSort<uint32_t>(BVH2BuildState& buildState, uint32_t*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
-	template void RadixSort<uint64_t>(BVH2BuildState& buildState, uint64_t*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+	template void RadixSort<uint32_t>(BVH2BuildState& buildState, DeviceBuffer<uint32_t>& mortonCodes,
+		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+	template void RadixSort<uint64_t>(BVH2BuildState& buildState, DeviceBuffer<uint64_t>& mortonCodes,
+		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
 }

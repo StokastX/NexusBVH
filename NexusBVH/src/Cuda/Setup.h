@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cuda_runtime.h>
-#include <iostream>
 #include "NXB/AABB.h"
+#include "NXB/DeviceBuffer.h"
 #include "NXB/Triangle.h"
 #include "NXB/BVHBuildMetrics.h"
 #include "BuildState.h"
@@ -25,10 +25,12 @@ namespace NXB
 	/*
 	 * \brief Performs one sweep radix sort for Morton codes (keys) and cluster indices (values)
 	 *
-	 * On return, mortonCodes and buildState.clusterIdx point at whichever half of the
-	 * double buffer holds the sorted data
+	 * cub sorts through a double buffer and may leave the result in either half. Both
+	 * buffers are taken by reference and swapped with the scratch halves when it does, so
+	 * on return each one owns the sorted data. buildState.clusterIdx is repointed to match.
 	 */
 	template <typename McT>
-	void RadixSort(BVH2BuildState& buildState, McT*& mortonCodes, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
+	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
+		DeviceBuffer<uint32_t>& clusterIdx, cudaStream_t stream, BVHBuildMetrics* buildMetrics);
 
 }

@@ -7,7 +7,6 @@
 
 #include "TestChecks.h"
 #include "support/BVHChecks.h"
-#include "support/DeviceBuffer.h"
 #include "support/Scenes.h"
 #include "support/TestConfig.h"
 
@@ -18,7 +17,7 @@ namespace
 	template <typename PrimT>
 	void BuildAndValidateBVH2(const std::vector<PrimT>& prims, NXB::BuildConfig buildConfig)
 	{
-		DeviceBuffer<PrimT> devicePrims(prims);
+		NXB::DeviceBuffer<PrimT> devicePrims(prims);
 
 		NXB::BVH2 deviceBvh = NXB::BuildBVH2<PrimT>(devicePrims.Get(), (uint32_t)prims.size(), buildConfig);
 		NXB::BVH2 hostBvh = NXB::ToHost(deviceBvh);

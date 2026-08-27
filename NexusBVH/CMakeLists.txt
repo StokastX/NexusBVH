@@ -8,6 +8,8 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 
 file(GLOB src
     include/NXB/BVHBuilder.h
+    include/NXB/DeviceBuffer.h
+    include/NXB/Error.h
     include/NXB/BVHBuildMetrics.h
     include/NXB/BenchmarkReport.h
     include/NXB/BuildConfig.h

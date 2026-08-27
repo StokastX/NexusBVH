@@ -7,7 +7,6 @@
 
 #include "TestChecks.h"
 #include "support/BVHChecks.h"
-#include "support/DeviceBuffer.h"
 #include "support/Scenes.h"
 #include "support/TestConfig.h"
 
@@ -30,7 +29,7 @@ namespace
 		NXB::BVHBuildMetrics* buildMetrics)
 	{
 		const uint32_t primCount = (uint32_t)prims.size();
-		DeviceBuffer<PrimT> devicePrims(prims);
+		NXB::DeviceBuffer<PrimT> devicePrims(prims);
 
 		NXB::BVH8 bvh = NXB::BuildBVH8<PrimT>(devicePrims.Get(), primCount, buildConfig, buildMetrics);
 
@@ -46,7 +45,7 @@ namespace
 		CheckValid(ValidateSceneBounds(bvh.bounds, ReferenceSceneBounds(prims)));
 
 		// Every primitive has to appear exactly once in the leaf index list
-		CheckValid(ValidatePrimIdxPermutation(CopyToHost(bvh.primIdx, primCount), primCount));
+		CheckValid(ValidatePrimIdxPermutation(NXB::CopyToHost(bvh.primIdx, primCount), primCount));
 
 		NXB::FreeDeviceBVH(bvh);
 	}
