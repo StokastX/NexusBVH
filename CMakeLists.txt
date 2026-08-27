@@ -14,10 +14,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
 
-option(NEXUSBVH_BUILD_TESTS "Build the test project" ON)
+option(NEXUSBVH_BUILD_TESTS "Build the test suite" ON)
 
 add_subdirectory(NexusBVH)
 
 if (NEXUSBVH_BUILD_TESTS)
-	add_subdirectory(Test)
+	enable_testing()
+	add_subdirectory(tests)
 endif()
