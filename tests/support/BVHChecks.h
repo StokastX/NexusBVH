@@ -37,6 +37,11 @@ namespace NXB::Test
 	AABB ReferenceSceneBounds(const std::vector<Triangle>& prims);
 	AABB ReferenceSceneBounds(const std::vector<AABB>& prims);
 
+	// Per primitive bounds, so the BVH8 walk can compare a node against what it contains
+	// without caring which PrimT the tree was built from
+	std::vector<AABB> PrimBounds(const std::vector<Triangle>& prims);
+	std::vector<AABB> PrimBounds(const std::vector<AABB>& prims);
+
 	/*
 	 * Walks the hierarchy from the root and checks that it is a well formed binary tree
 	 * covering every primitive exactly once.
@@ -56,8 +61,21 @@ namespace NXB::Test
 
 	/*
 	 * Checks that a primitive index list references every primitive in [0, primCount)
-	 * exactly once. Used for the BVH8 leaf index list, which is the only part of the
-	 * wide node encoding that is readable from host code today.
+	 * exactly once.
 	 */
 	ValidationResult ValidatePrimIdxPermutation(const std::vector<uint32_t>& primIdx, uint32_t primCount);
+
+	/*
+	 * Walks the wide hierarchy from the root, decoding each node with the independent
+	 * decoder in BVH8Decode.h.
+	 *
+	 * Checks every node reachable exactly once, meta and imask agreeing, unused slots
+	 * decoding as empty, every primitive slot referenced by exactly one leaf, and -- the
+	 * part a node count alone cannot see -- that each quantized child box contains the
+	 * true bounds of what sits below it, without being more than a quantization cell
+	 * larger than it, and that each node grid spans its node in 255 cells.
+	 *
+	 * Takes a host side BVH8, i.e. the result of NXB::ToHost.
+	 */
+	ValidationResult ValidateBVH8(const BVH8& hostBvh, const std::vector<AABB>& primBounds);
 }

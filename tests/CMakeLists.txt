@@ -12,6 +12,9 @@ set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 file(GLOB supportSrc
 	support/BVHChecks.h
 	support/BVHChecks.cpp
+	support/BVH8Checks.cpp
+	support/BVH8Decode.h
+	support/BVH8Decode.cpp
 	support/Scenes.h
 	support/Scenes.cpp
 	support/TestConfig.h

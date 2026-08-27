@@ -43,10 +43,13 @@ TEST_CASE("Empty input returns an empty BVH")
 	CHECK(bvh8.primCount == 0);
 }
 
-/*
- * The error handling contract itself. This used to call exit(99) from inside the library,
- * which took the whole test run down with it and gave an embedder no way to recover.
- */
+} // TEST_SUITE fast
+
+
+TEST_SUITE("slow")
+{
+
+// The error handling contract itself
 TEST_CASE("A failed allocation throws instead of exiting")
 {
 	NXB::BuildConfig buildConfig;
@@ -54,8 +57,7 @@ TEST_CASE("A failed allocation throws instead of exiting")
 
 	// 500M primitives needs 2n - 1 nodes at 32 B each, i.e. roughly 32 GB of BVH2 nodes.
 	// The allocation fails before any kernel is launched, so the null primitive pointer
-	// below is never dereferenced, and an out of memory is not sticky -- the cases after
-	// this one still run against a healthy context.
+	// below is never dereferenced, and an out of memory is not sticky.
 	const uint32_t primCount = 500000000;
 
 	bool threw = false;
@@ -69,7 +71,7 @@ TEST_CASE("A failed allocation throws instead of exiting")
 		threw = true;
 		CHECK(error.code == cudaErrorMemoryAllocation);
 
-		// The message names the call that failed, which is the whole point of carrying one
+		// The message names the call that failed
 		CHECK(std::string(error.what()).find("cudaMallocAsync") != std::string::npos);
 	}
 	CHECK(threw);
@@ -99,12 +101,6 @@ TEST_CASE("A failed allocation throws instead of exiting")
 	NXB::FreeHostBVH(hostBvh);
 	NXB::FreeDeviceBVH(deviceBvh);
 }
-
-} // TEST_SUITE fast
-
-
-TEST_SUITE("slow")
-{
 
 /*
  * The build has to run on the stream the caller asked for, and drain it before

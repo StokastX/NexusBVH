@@ -44,9 +44,15 @@ namespace
 
 		CheckValid(ValidateSceneBounds(bvh.bounds, ReferenceSceneBounds(prims)));
 
-		// Every primitive has to appear exactly once in the leaf index list
-		CheckValid(ValidatePrimIdxPermutation(NXB::CopyToHost(bvh.primIdx, primCount), primCount));
+		NXB::BVH8 hostBvh = NXB::ToHost(bvh);
 
+		// Every primitive has to appear exactly once in the leaf index list
+		CheckValid(ValidatePrimIdxPermutation(
+			std::vector<uint32_t>(hostBvh.primIdx, hostBvh.primIdx + primCount), primCount));
+
+		CheckValid(ValidateBVH8(hostBvh, PrimBounds(prims)));
+
+		NXB::FreeHostBVH(hostBvh);
 		NXB::FreeDeviceBVH(bvh);
 	}
 
