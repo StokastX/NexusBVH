@@ -52,10 +52,23 @@ namespace NXB
 	 */
 	BVH2 ToHost(BVH2 deviceBvh);
 
+	/* \brief Transfer BVH to CPU
+	 *
+	 * \param wideBVH The compressed wide BVH to be transferred
+	 *
+	 * \returns A CPU BVH instance
+	 */
+	BVH8 ToHost(BVH8 deviceBvh);
+
 	/*
 	 * \brief Free the host instance of the binary BVH
 	 */
 	void FreeHostBVH(BVH2 hostBvh);
+
+	/*
+	 * \brief Free the host instance of the compressed wide BVH
+	 */
+	void FreeHostBVH(BVH8 hostBvh);
 
 	/*
 	 * \brief Free the device instance of the binary BVH

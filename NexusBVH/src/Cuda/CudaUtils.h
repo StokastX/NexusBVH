@@ -7,11 +7,6 @@
 
 namespace NXB
 {
-	/*
-	 * Occupancy helpers. Memory lives in NXB/DeviceBuffer.h -- the CudaMemory namespace
-	 * that used to sit here was five sixths dead once every allocation became owned, and
-	 * its three surviving operations moved onto DeviceBuffer and the CopyToHost helpers.
-	 */
 	namespace CudaUtils
 	{
 		inline uint32_t GetGridSizeFullOccupancy(const void* func, uint32_t blockSize)

@@ -1,5 +1,7 @@
 #include "NXB/BVHBuilder.h"
 
+#include <memory>
+
 #include "NXB/DeviceBuffer.h"
 
 #include "Math/Math.h"
@@ -47,10 +49,8 @@ namespace NXB
 		const uint32_t blockSize = 64;
 		const uint32_t nodeCount = buildState.primCount * 2 - 1;
 
-		// Scratch for the three steps below. Owning these means a throw part way through
-		// releases them, and it is why there are no FreeAsync calls at the end any more.
-		// The build state keeps raw pointers because it is passed by value into kernels,
-		// which an owning type cannot be.
+		// Scratch for the three steps below. The build state keeps raw pointers because it
+		// is passed by value into kernels, which an owning type cannot be.
 		DeviceBuffer<uint32_t> parentIdx(buildState.primCount, stream);
 		DeviceBuffer<uint32_t> clusterIdx(buildState.primCount, stream);
 		DeviceBuffer<uint32_t> clusterCount(1, stream);
@@ -169,9 +169,8 @@ namespace NXB
 		// the caller has in flight elsewhere keeps running.
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-		// The build succeeded, so the node array outlives this scope: bvh.nodes already
-		// points at it and the caller releases it with FreeDeviceBVH. Released only after
-		// the synchronize above, so that a throw there still frees it.
+		// bvh.nodes already points at it, and the caller releases it with FreeDeviceBVH.
+		// After the synchronize, so that a throw there still frees it.
 		nodes.Release();
 
 		return bvh;
@@ -194,9 +193,7 @@ namespace NXB
 
 		BVH2 bvh2 = BuildBVH2<PrimT>(primitives, primCount, buildConfig, buildMetrics);
 
-		// The BVH2 is scratch from here on: the collapse reads it and it is released
-		// before returning. Adopting it means that release also happens if a step below
-		// throws, which a raw bvh2.nodes would not.
+		// The BVH2 is scratch from here on: the collapse reads it, then it is released
 		DeviceBuffer<BVH2::Node> bvh2Nodes = DeviceBuffer<BVH2::Node>::Adopt(bvh2.nodes, bvh2.nodeCount, stream);
 
 		BVH8BuildState buildState;
@@ -266,13 +263,10 @@ namespace NXB
 			buildMetrics->averageChildPerNode = (float)(bvh8.primCount + bvh8.nodeCount - 1) / bvh8.nodeCount;
 		}
 
-		// Everything still owned here -- the BVH2 nodes included -- is released when this
-		// scope ends. The frees are stream ordered, so the collapse kernel above is
+		// The frees at the end of this scope are stream ordered, so the collapse kernel is
 		// guaranteed to be done reading the BVH2 nodes by the time they go.
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-		// The build succeeded, so these two outlive the scope and the caller releases
-		// them with FreeDeviceBVH
 		bvh8Nodes.Release();
 		primIdx.Release();
 
@@ -281,13 +275,27 @@ namespace NXB
 
 	BVH2 ToHost(BVH2 deviceBvh)
 	{
-		BVH2 hostBVH;
-		hostBVH.primCount = deviceBvh.primCount;
-		hostBVH.nodeCount = deviceBvh.nodeCount;
-		hostBVH.bounds = deviceBvh.bounds;
-		hostBVH.nodes = new BVH2::Node[deviceBvh.nodeCount];
-		CopyToHost(hostBVH.nodes, deviceBvh.nodes, deviceBvh.nodeCount);
-		return hostBVH;
+		BVH2 hostBvh = deviceBvh;
+
+		std::unique_ptr<BVH2::Node[]> nodes(new BVH2::Node[deviceBvh.nodeCount]);
+		CopyToHost(nodes.get(), deviceBvh.nodes, deviceBvh.nodeCount);
+
+		hostBvh.nodes = nodes.release();
+		return hostBvh;
+	}
+
+	BVH8 ToHost(BVH8 deviceBvh)
+	{
+		BVH8 hostBvh = deviceBvh;
+
+		std::unique_ptr<BVH8::Node[]> nodes(new BVH8::Node[deviceBvh.nodeCount]);
+		std::unique_ptr<uint32_t[]> primIdx(new uint32_t[deviceBvh.primCount]);
+		CopyToHost(nodes.get(), deviceBvh.nodes, deviceBvh.nodeCount);
+		CopyToHost(primIdx.get(), deviceBvh.primIdx, deviceBvh.primCount);
+
+		hostBvh.nodes = nodes.release();
+		hostBvh.primIdx = primIdx.release();
+		return hostBvh;
 	}
 
 	void FreeHostBVH(BVH2 hostBvh)
@@ -295,11 +303,14 @@ namespace NXB
 		delete[] hostBvh.nodes;
 	}
 
-	/*
-	 * The arrays come from cudaMallocAsync on the build stream, and are released here with
-	 * the synchronous cudaFree -- which is what a caller facing free that takes no stream
-	 * has to do. Checked, so an illegal pairing would throw rather than pass silently.
-	 */
+	void FreeHostBVH(BVH8 hostBvh)
+	{
+		delete[] hostBvh.nodes;
+		delete[] hostBvh.primIdx;
+	}
+
+	// The arrays come from cudaMallocAsync on the build stream; these entry points take no
+	// stream, so they release them with the synchronous cudaFree
 	void FreeDeviceBVH(BVH2 deviceBvh)
 	{
 		NXB_CUDA_CHECK(cudaFree(deviceBvh.nodes));

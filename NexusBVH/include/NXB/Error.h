@@ -10,21 +10,16 @@ namespace NXB
 {
 	/* \brief Thrown by every NexusBVH entry point when a CUDA call fails
 	 *
-	 * The library reports failure by throwing and never terminates the process. Running
-	 * out of device memory is a recoverable condition for whoever is embedding this: a
-	 * renderer may well want to drop a level of detail and build again, and it cannot do
-	 * that if the library has already called exit().
-	 *
-	 * Every device allocation a build had made is released before the exception leaves
-	 * the library, so a caught CudaError leaks nothing and the caller may retry.
+	 * Every device allocation a build had made is released before the exception leaves the
+	 * library, so a caught CudaError leaks nothing and the caller may retry -- with fewer
+	 * primitives, say, after an out of memory.
 	 */
 	struct CudaError : std::runtime_error
 	{
 		CudaError(cudaError_t errorCode, const std::string& message)
 			: std::runtime_error(message), code(errorCode) { }
 
-		// Kept alongside the message so a caller can branch on the reason rather than
-		// parse text -- cudaErrorMemoryAllocation being the one worth recovering from
+		// So a caller can branch on the reason rather than parse the message
 		cudaError_t code;
 	};
 

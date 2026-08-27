@@ -13,21 +13,16 @@ namespace NXB
 {
 	/* \brief Owns one stream ordered device allocation
 	 *
-	 * The build functions take device pointers and, before this, gave the caller nothing
-	 * to make one with -- so every user wrote the same cudaMalloc / cudaMemcpy / cudaFree
-	 * triple and leaked it on the first early return. This is that triple, written once.
-	 *
-	 * Allocation is stream ordered (cudaMallocAsync) and never synchronizes, which is what
-	 * the builder needs for its scratch buffers. The entry points that touch host memory
-	 * are split along that line:
+	 * Allocation is stream ordered (cudaMallocAsync) and never synchronizes. The entry
+	 * points that touch host memory are split along that line:
 	 *
 	 *   - the std::vector constructor, Upload and Download synchronize the buffer's stream
 	 *     before returning, so the pointer they produce is safe to hand to a build running
-	 *     on any stream, and the host memory they read from need not outlive the call
-	 *   - UploadAsync does not, and the host memory it reads from has to stay alive until
-	 *     the stream drains
+	 *     on any stream, and the host memory they touch need not outlive the call
+	 *   - UploadAsync and DownloadAsync do not, and the host memory they touch has to stay
+	 *     alive until the stream drains
 	 *
-	 * Move only. The destructor cannot report a failing free, so it swallows it.
+	 * Move only.
 	 */
 	template <typename T>
 	class DeviceBuffer
@@ -44,19 +39,13 @@ namespace NXB
 			m_count = count;
 		}
 
-		// Allocates and uploads in one step, which is what a caller with geometry in a
-		// std::vector actually wants
 		explicit DeviceBuffer(const std::vector<T>& host, cudaStream_t stream = 0)
 			: DeviceBuffer(host.size(), stream)
 		{
 			Upload(host.data(), host.size());
 		}
 
-		/* \brief Takes ownership of an existing device pointer
-		 *
-		 * For memory this class did not allocate but should still release on the way out
-		 * -- the node array inside a BVH handle, say.
-		 */
+		// Takes ownership of a pointer this class did not allocate
 		static DeviceBuffer Adopt(T* devicePtr, size_t count, cudaStream_t stream = 0)
 		{
 			DeviceBuffer buffer;
@@ -136,13 +125,7 @@ namespace NXB
 			return host;
 		}
 
-		/* \brief Sets every byte of the buffer to value
-		 *
-		 * Byte semantics, like cudaMemset: FillBytes(1) does not give a buffer full of
-		 * ones. There is deliberately no count parameter: the raw cudaMemset takes a byte
-		 * count while its neighbours take element counts, and that asymmetry has already
-		 * caused a bug here. Filling the whole buffer leaves nothing to get wrong.
-		 */
+		// Byte semantics, like cudaMemset: FillBytes(1) does not give a buffer full of ones
 		void FillBytes(uint8_t value)
 		{
 			if (m_count == 0)
@@ -151,8 +134,7 @@ namespace NXB
 			NXB_CUDA_CHECK(cudaMemsetAsync(m_ptr, value, sizeof(T) * m_count, m_stream));
 		}
 
-		// Gives up ownership, for memory that outlives this object -- the node array
-		// handed back inside a BVH handle, which the caller frees with FreeDeviceBVH
+		// Gives up ownership, for memory that outlives this object
 		T* Release()
 		{
 			T* released = m_ptr;
@@ -163,8 +145,7 @@ namespace NXB
 
 		void Reset()
 		{
-			// A destructor must not throw, so a failing free is swallowed here rather
-			// than routed through NXB_CUDA_CHECK
+			// A destructor must not throw, so a failing free is swallowed
 			if (m_ptr != nullptr)
 				cudaFreeAsync(m_ptr, m_stream);
 
@@ -184,11 +165,8 @@ namespace NXB
 
 
 	/*
-	 * Readbacks from a device range this process does not hold a DeviceBuffer for -- the
-	 * arrays inside a BVH handle, which are raw pointers.
-	 *
-	 * These take an ELEMENT count and deduce T on both sides, so neither a stray sizeof
-	 * nor a host/device mix-up compiles.
+	 * Readbacks from a device range this process does not hold a DeviceBuffer for, such as
+	 * the arrays inside a BVH handle. ELEMENT counts, with T deduced on both sides.
 	 */
 	template <typename T>
 	void CopyToHostAsync(T* host, const T* devicePtr, size_t count, cudaStream_t stream)

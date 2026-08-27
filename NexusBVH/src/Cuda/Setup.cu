@@ -92,8 +92,7 @@ namespace NXB
 		}
 
 		// cub may have left the sorted data in either half. Where it picked the scratch
-		// half, swap the owners so the caller's buffer owns the result and the local one
-		// owns the discard, which its destructor then releases.
+		// half, swap the owners so the caller's buffer owns the result.
 		if (keysBuffer.Current() != mortonCodes.Get())
 			std::swap(mortonCodes, mortonCodesSorted);
 		if (valuesBuffer.Current() != clusterIdx.Get())

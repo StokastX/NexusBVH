@@ -100,12 +100,10 @@ namespace NXB
 			if (!m_dst)
 				return;
 
-			// Deliberately unchecked. A destructor is noexcept, and this one also runs while
+			// Deliberately unchecked: a destructor is noexcept, and this one also runs while
 			// an exception from the timed scope unwinds, where a second one in flight would
-			// terminate the process -- so NXB_CUDA_CHECK cannot be used here. Little is lost
-			// by it: a real failure inside the scope was already reported by the launch that
-			// raised it, and the only casualty here is one metrics number, which keeps
-			// whatever value it came in with.
+			// terminate. A failure inside the scope has already been reported by the launch
+			// that raised it, and the only casualty here is one metrics number.
 			if (cudaEventRecord(m_stop, m_stream) == cudaSuccess && cudaEventSynchronize(m_stop) == cudaSuccess)
 				cudaEventElapsedTime(m_dst, m_start, m_stop);
 
