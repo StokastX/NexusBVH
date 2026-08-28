@@ -1,15 +1,13 @@
-cmake_minimum_required(VERSION 3.24)
-project(NexusBVHTests LANGUAGES C CXX CUDA)
-
-find_package(CUDAToolkit REQUIRED)
-set(CMAKE_CUDA_ARCHITECTURES native)
+# CUDA is enabled and CUDAToolkit found once, at the top level. There are no .cu sources
+# in this directory, so the LANGUAGES CUDA and CMAKE_CUDA_ARCHITECTURES that used to sit
+# here were doing nothing but overriding the architecture the user asked for.
 
 set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 	"Primitive count used by the large scene test cases")
 
 # Shared fixtures and invariant checks, kept free of any test framework so they can be
 # reused from anywhere -- including, later, the traversal tests
-file(GLOB supportSrc
+set(supportSrc
 	support/BVHChecks.h
 	support/BVHChecks.cpp
 	support/BVH8Checks.cpp
@@ -24,7 +22,7 @@ add_library(NexusBVHTestSupport STATIC ${supportSrc})
 
 target_link_libraries(NexusBVHTestSupport
 	PUBLIC
-		NexusBVH
+		NXB::NexusBVH
 		CUDA::cudart
 )
 
@@ -39,7 +37,7 @@ target_compile_definitions(NexusBVHTestSupport
 )
 
 
-file(GLOB testSrc
+set(testSrc
 	TestChecks.h
 	TestMain.cpp
 	TestApi.cpp
@@ -80,7 +78,7 @@ add_test(NAME "All cases in one process" COMMAND NexusBVHTests)
 set_tests_properties("All cases in one process" PROPERTIES LABELS "slow")
 
 # Set the test runner as startup project in Visual Studio
-set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT NexusBVHTests)
+set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT NexusBVHTests)
 
 # Display tree files in Visual Studio
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}

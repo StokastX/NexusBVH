@@ -1,0 +1,21 @@
+# Template for NexusBVHConfig.cmake -- the file `find_package(NexusBVH)` searches for and
+# includes. Its job is to leave NXB::NexusBVH existing and usable in the caller's scope.
+#
+# @PACKAGE_INIT@ is replaced by configure_package_config_file with a block that computes
+# the install prefix by walking up from this file's own location (CMAKE_CURRENT_LIST_DIR)
+# rather than baking in an absolute path from the machine that built the package. That is
+# what makes the installed tree relocatable: move it, zip it, mount it elsewhere, and the
+# paths below still resolve.
+@PACKAGE_INIT@
+
+# NexusBVHTargets.cmake refers to CUDA::cudart by name, and that target only exists once
+# someone has called find_package(CUDAToolkit). A consumer has no reason to know that, so
+# the package does it for them. Without this line find_package(NexusBVH) appears to
+# succeed and then fails in the consumer's target_link_libraries, pointing at their code
+# instead of at this package.
+include(CMakeFindDependencyMacro)
+find_dependency(CUDAToolkit)
+
+include("${CMAKE_CURRENT_LIST_DIR}/NexusBVHTargets.cmake")
+
+check_required_components(NexusBVH)

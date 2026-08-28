@@ -28,7 +28,7 @@ BVH2 refers to the H-PLOC kernel with a search radius of 8. Radix sort is perfor
 NexusBVH is a CMake-based project and requires the following dependencies:
 
 - [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (from NVIDIA)
-- [CMake](https://cmake.org/download/) version 3.22 or higher
+- [CMake](https://cmake.org/download/) version 3.24 or higher
 
 The project has been tested on both **Windows** (with Visual Studio) and **Ubuntu**.
 
@@ -55,6 +55,46 @@ The project has been tested on both **Windows** (with Visual Studio) and **Ubunt
    make -j
    ```
 - On Windows (Visual Studio): Open the generated solution file in Visual Studio, and press F5 to build and run.
+
+## Using NexusBVH in your project
+
+NexusBVH builds as a **static library**. Its public surface is `include/NXB/`, and the
+target to link is `NXB::NexusBVH` -- the same name whichever way you consume it.
+
+**As a subdirectory**, if you vendor the source:
+
+``` cmake
+add_subdirectory(external/NexusBVH)
+target_link_libraries(myapp PRIVATE NXB::NexusBVH)
+```
+
+Your project keeps its own settings: set `CMAKE_CUDA_ARCHITECTURES` before
+`add_subdirectory` and NexusBVH compiles for what you asked for. The test suite is off
+by default when NexusBVH is not the top-level project; `-DNEXUSBVH_BUILD_TESTS=ON`
+turns it back on.
+
+**As an installed package**, if you would rather build it once:
+
+``` sh
+cmake -S . -B build
+cmake --build build --config Release
+cmake --install build --config Release --prefix /path/to/prefix
+```
+
+``` cmake
+find_package(NexusBVH REQUIRED)   # -DCMAKE_PREFIX_PATH=/path/to/prefix
+target_link_libraries(myapp PRIVATE NXB::NexusBVH)
+```
+
+Either way the target carries what it needs with it: the include directory, C++17, and
+the CUDA runtime. The public headers include `<cuda_runtime.h>` but are guarded for a
+host compiler, so **a consumer does not need to enable the CUDA language or compile
+anything with nvcc** to use the library.
+
+Note that device symbols are resolved when the archive is built
+(`CUDA_RESOLVE_DEVICE_SYMBOLS`), which is what lets an ordinary host linker consume it.
+The flip side is that a consumer's own kernels cannot call NexusBVH `__device__`
+functions directly; the API is host-side.
 
 ## Resources
 
