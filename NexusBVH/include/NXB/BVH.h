@@ -21,6 +21,10 @@ namespace NXB
 	 *
 	 * Pass View() into a kernel, ToHost() to read it back. Release() opts out and hands
 	 * the raw arrays over, for a caller that would rather own them itself.
+	 *
+	 * The root is the LAST node, nodes[nodeCount - 1], because the builder merges bottom
+	 * up and allocates the root last. BVH8 roots at node 0 instead, so a traversal written
+	 * for one does not carry over to the other -- ask RootIdx() rather than assuming.
 	 */
 	class BVH2
 	{
@@ -50,6 +54,12 @@ namespace NXB
 
 			// Root bounds
 			AABB bounds;
+
+			// Index of the root node, InvalidIdx if the BVH is empty
+			__host__ __device__ uint32_t RootIdx() const
+			{
+				return nodeCount ? nodeCount - 1 : InvalidIdx;
+			}
 		};
 
 		// A host side copy that releases itself
@@ -60,6 +70,12 @@ namespace NXB
 
 			// Root bounds
 			AABB bounds;
+
+			// Index of the root node, InvalidIdx if the BVH is empty
+			uint32_t RootIdx() const
+			{
+				return nodes.empty() ? InvalidIdx : (uint32_t)nodes.size() - 1;
+			}
 		};
 
 		BVH2() { m_bounds.Clear(); }
@@ -106,6 +122,10 @@ namespace NXB
 
 		uint32_t NodeCount() const { return (uint32_t)m_nodes.Count(); }
 		uint32_t PrimCount() const { return m_primCount; }
+
+		// Index of the root node, InvalidIdx if the BVH is empty
+		uint32_t RootIdx() const { return NodeCount() ? NodeCount() - 1 : InvalidIdx; }
+
 		const AABB& Bounds() const { return m_bounds; }
 		bool Empty() const { return m_nodes.Get() == nullptr; }
 
@@ -123,6 +143,10 @@ namespace NXB
 	 * Same contract as BVH2, over two arrays. Note that the node array is allocated at the
 	 * (4n - 1) / 7 worst case while NodeCount() is what the collapse actually produced, so
 	 * the two differ -- ToHost copies only the nodes that exist.
+	 *
+	 * The root is node 0: the collapse walks top down and writes the root first, where the
+	 * binary builder merges bottom up and writes it last. RootIdx() is the portable way to
+	 * ask, and is the only reason the two agree on anything here.
 	 */
 	class BVH8
 	{
@@ -184,6 +208,12 @@ namespace NXB
 
 			// Root bounds
 			AABB bounds;
+
+			// Index of the root node, InvalidIdx if the BVH is empty
+			__host__ __device__ uint32_t RootIdx() const
+			{
+				return nodeCount ? 0 : InvalidIdx;
+			}
 		};
 
 		// A host side copy that releases itself. nodes.size() is the node count.
@@ -195,6 +225,9 @@ namespace NXB
 
 			// Root bounds
 			AABB bounds;
+
+			// Index of the root node, InvalidIdx if the BVH is empty
+			uint32_t RootIdx() const { return nodes.empty() ? InvalidIdx : 0; }
 		};
 
 		BVH8() { m_bounds.Clear(); }
@@ -250,6 +283,9 @@ namespace NXB
 
 		uint32_t NodeCount() const { return m_nodeCount; }
 		uint32_t PrimCount() const { return m_primCount; }
+
+		// Index of the root node, InvalidIdx if the BVH is empty
+		uint32_t RootIdx() const { return m_nodeCount ? 0 : InvalidIdx; }
 
 		/*
 		 * Average number of children per node, a coarse measure of how well the collapse
