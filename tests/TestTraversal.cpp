@@ -7,6 +7,7 @@
 
 #include "TestChecks.h"
 #include "support/BVHChecks.h"
+#include "support/DeviceTraversal.h"
 #include "support/Rays.h"
 #include "support/Scenes.h"
 #include "support/TestConfig.h"
@@ -194,6 +195,79 @@ TEST_CASE("Near to far ordering culls what far to near would not")
 	// A ray set that misses everything would meet any budget
 	CHECK(hits > rays.size() / 8);
 	CHECK(leavesPerRay < leafBudgetPerRay);
+}
+
+TEST_CASE("Device traversal agrees with the host walk and with brute force")
+{
+	/*
+	 * The same TraverseBVH2 template through nvcc rather than the host compiler. What
+	 * this can catch and the host cases cannot: a stack array that spills to local
+	 * memory, a callback nvcc declines to inline, a float expression contracted into an
+	 * FMA. The first two would still be correct; the third moves the last bits, which is
+	 * why the distance comparison here is a tolerance and the host cases are exact.
+	 *
+	 * Measured with -Xptxas -v at sm_89: 41 registers, 0 spill stores, 0 spill loads, and
+	 * a 128 byte stack frame, which is the 32 entry traversal stack and nothing else. The
+	 * callback inlines. Re-check that if this header ever grows.
+	 */
+	std::vector<NXB::Triangle> prims = GenerateTriangles(20000, smallSceneGridSize);
+	NXB::DeviceBuffer<NXB::Triangle> devicePrims(prims);
+	NXB::BVH2 bvh = NXB::BuildBVH2<NXB::Triangle>(devicePrims.Get(), (uint32_t)prims.size());
+	NXB::BVH2::Host hostBvh = bvh.ToHost();
+
+	const std::vector<Ray> rays = AllRayKinds(hostBvh.bounds, fastRayCount);
+
+	const std::vector<Hit> deviceHits = DeviceClosestHits(bvh.View(), devicePrims.Get(), rays);
+	const std::vector<Hit> deviceReference = DeviceBruteForceHits(devicePrims.Get(),
+		(uint32_t)prims.size(), rays);
+	const std::vector<uint8_t> deviceAnyHits = DeviceAnyHits(bvh.View(), devicePrims.Get(), rays);
+
+	REQUIRE(deviceHits.size() == rays.size());
+
+	uint32_t hits = 0;
+	for (size_t i = 0; i < rays.size(); ++i)
+	{
+		CAPTURE(i);
+
+		// Host walk, exactly as the other cases run it
+		Hit host{ NXB::RayMiss, NXB::InvalidIdx };
+		float tMax = NXB::RayMiss;
+		NXB::TraverseBVH2(hostBvh, rays[i].origin, rays[i].invDirection, 0.0f, tMax,
+			[&](uint32_t primIdx, float& tMax)
+			{
+				float t;
+				if (IntersectPrim(prims[primIdx], rays[i], 0.0f, tMax, t))
+				{
+					tMax = t;
+					host.t = t;
+					host.primIdx = primIdx;
+				}
+				return true;
+			});
+
+		const bool hostHit = host.primIdx != NXB::InvalidIdx;
+		const bool deviceHit = deviceHits[i].primIdx != NXB::InvalidIdx;
+
+		// Hit or miss is a decision, not a rounded value, so it has to match exactly
+		CHECK(deviceHit == hostHit);
+		CHECK(deviceHit == (deviceReference[i].primIdx != NXB::InvalidIdx));
+		CHECK((deviceAnyHits[i] != 0) == hostHit);
+
+		if (deviceHit && hostHit)
+		{
+			CHECK(deviceHits[i].t == doctest::Approx(host.t).epsilon(1e-5));
+			CHECK(deviceHits[i].t == doctest::Approx(deviceReference[i].t).epsilon(1e-5));
+
+			// Same primitive, unless two of them genuinely meet at that distance
+			if (deviceHits[i].t == host.t)
+				CHECK(deviceHits[i].primIdx == host.primIdx);
+		}
+
+		if (hostHit)
+			hits++;
+	}
+
+	CHECK(hits > rays.size() / 8);
 }
 
 /*

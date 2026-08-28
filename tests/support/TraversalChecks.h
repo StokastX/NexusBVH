@@ -7,6 +7,7 @@
 #include "NXB/Triangle.h"
 
 #include "BVHChecks.h"
+#include "PrimIntersect.h"
 #include "Rays.h"
 
 namespace NXB::Test
@@ -22,8 +23,8 @@ namespace NXB::Test
 	 * both makes a mismatch mean traversal, and never the triangle test.
 	 */
 
-	bool IntersectPrim(const Triangle& tri, const Ray& ray, float tMin, float tMax, float& t);
-	bool IntersectPrim(const AABB& box, const Ray& ray, float tMin, float tMax, float& t);
+	// IntersectPrim and BruteForce live in PrimIntersect.h, __host__ __device__ so the
+	// device kernel in DeviceTraversal.cu runs the identical code
 
 	// Closest hit found by testing every primitive
 	Hit BruteForceClosestHit(const std::vector<Triangle>& prims, const Ray& ray, float tMin, float tMax);

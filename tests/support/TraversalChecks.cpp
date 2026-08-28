@@ -12,64 +12,6 @@ namespace NXB::Test
 		std::string Str(float v) { return std::to_string(v); }
 		std::string Str(uint32_t v) { return std::to_string(v); }
 
-		/*
-		 * Moller-Trumbore, two sided. The epsilon rejects rays parallel to the triangle
-		 * plane: a generated scene contains near degenerate triangles, and those would
-		 * otherwise produce a NaN distance that compares unequal to itself.
-		 */
-		bool IntersectTriangle(const Triangle& tri, const Ray& ray, float tMin, float tMax, float& t)
-		{
-			const float3 e1 = make_float3(tri.v1.x - tri.v0.x, tri.v1.y - tri.v0.y, tri.v1.z - tri.v0.z);
-			const float3 e2 = make_float3(tri.v2.x - tri.v0.x, tri.v2.y - tri.v0.y, tri.v2.z - tri.v0.z);
-
-			const float3 p = make_float3(
-				ray.direction.y * e2.z - ray.direction.z * e2.y,
-				ray.direction.z * e2.x - ray.direction.x * e2.z,
-				ray.direction.x * e2.y - ray.direction.y * e2.x);
-
-			const float det = e1.x * p.x + e1.y * p.y + e1.z * p.z;
-			if (fabsf(det) < 1e-12f)
-				return false;
-
-			const float invDet = 1.0f / det;
-			const float3 s = make_float3(
-				ray.origin.x - tri.v0.x, ray.origin.y - tri.v0.y, ray.origin.z - tri.v0.z);
-
-			const float u = (s.x * p.x + s.y * p.y + s.z * p.z) * invDet;
-			if (u < 0.0f || u > 1.0f)
-				return false;
-
-			const float3 q = make_float3(
-				s.y * e1.z - s.z * e1.y, s.z * e1.x - s.x * e1.z, s.x * e1.y - s.y * e1.x);
-
-			const float v = (ray.direction.x * q.x + ray.direction.y * q.y + ray.direction.z * q.z) * invDet;
-			if (v < 0.0f || u + v > 1.0f)
-				return false;
-
-			const float hit = (e2.x * q.x + e2.y * q.y + e2.z * q.z) * invDet;
-			if (hit < tMin || hit > tMax)
-				return false;
-
-			t = hit;
-			return true;
-		}
-
-		template <typename PrimT>
-		Hit BruteForce(const std::vector<PrimT>& prims, const Ray& ray, float tMin, float tMax)
-		{
-			Hit hit{ RayMiss, InvalidIdx };
-			for (uint32_t i = 0; i < (uint32_t)prims.size(); ++i)
-			{
-				float t;
-				if (IntersectPrim(prims[i], ray, tMin, tMax, t) && t < hit.t)
-				{
-					hit.t = t;
-					hit.primIdx = i;
-				}
-			}
-			return hit;
-		}
-
 		template <typename PrimT>
 		ValidationResult Validate(const BVH2::Host& bvh, const std::vector<PrimT>& prims,
 			const std::vector<Ray>& rays, float tMin)
@@ -117,7 +59,7 @@ namespace NXB::Test
 					result.Add("closest hit traversal reported an early out it never asked for" + at);
 
 				bruteForceTests += primCount;
-				const Hit reference = BruteForce(prims, ray, tMin, RayMiss);
+				const Hit reference = BruteForce(prims.data(), primCount, ray, tMin, RayMiss);
 
 				// A tie on distance is legitimate: two primitives can meet at a point and
 				// either is a correct answer. A different distance never is.
@@ -161,25 +103,14 @@ namespace NXB::Test
 		}
 	}
 
-	bool IntersectPrim(const Triangle& tri, const Ray& ray, float tMin, float tMax, float& t)
-	{
-		return IntersectTriangle(tri, ray, tMin, tMax, t);
-	}
-
-	bool IntersectPrim(const AABB& box, const Ray& ray, float tMin, float tMax, float& t)
-	{
-		t = IntersectAABB(box, ray.origin, ray.invDirection, tMin, tMax);
-		return t < RayMiss;
-	}
-
 	Hit BruteForceClosestHit(const std::vector<Triangle>& prims, const Ray& ray, float tMin, float tMax)
 	{
-		return BruteForce(prims, ray, tMin, tMax);
+		return BruteForce(prims.data(), (uint32_t)prims.size(), ray, tMin, tMax);
 	}
 
 	Hit BruteForceClosestHit(const std::vector<AABB>& prims, const Ray& ray, float tMin, float tMax)
 	{
-		return BruteForce(prims, ray, tMin, tMax);
+		return BruteForce(prims.data(), (uint32_t)prims.size(), ray, tMin, tMax);
 	}
 
 	ValidationResult ValidateTraversal(const BVH2::Host& bvh, const std::vector<Triangle>& prims,

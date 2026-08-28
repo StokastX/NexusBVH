@@ -1,6 +1,10 @@
-# CUDA is enabled and CUDAToolkit found once, at the top level. There are no .cu sources
-# in this directory, so the LANGUAGES CUDA and CMAKE_CUDA_ARCHITECTURES that used to sit
-# here were doing nothing but overriding the architecture the user asked for.
+# CUDA is enabled and CUDAToolkit found once, at the top level, and DeviceTraversal.cu
+# inherits both. This directory still declares neither LANGUAGES CUDA nor an
+# architecture: doing so here would override the one the user asked for.
+#
+# The .cu is why NEXUSBVH_BUILD_TESTS now needs the CUDA language enabled in an embedding
+# project. Nothing in it uses relocatable device code, so it needs no separable
+# compilation of its own.
 
 set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 	"Primitive count used by the large scene test cases")
@@ -9,6 +13,9 @@ set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 # reused from anywhere, including the traversal tests
 set(supportSrc
 	support/BVHChecks.h
+	support/DeviceTraversal.h
+	support/DeviceTraversal.cu
+	support/PrimIntersect.h
 	support/BVHChecks.cpp
 	support/BVH8Checks.cpp
 	support/BVH8Decode.h
