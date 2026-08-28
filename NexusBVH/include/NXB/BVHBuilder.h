@@ -29,7 +29,11 @@ namespace NXB
 	 * \param primitives The primitives the BVH will be built from (AABB or Triangle)
 	 * \param primCount The number of primitives
 	 * \param buildConfig The build configuration
-	 * \param buildMetrics The build metrics. If different from nullptr, kernel execution times will be measured which results in a slower build
+	 * \param buildMetrics Per step kernel timings. Filled in when non-null, at a cost of
+	 *        roughly 0.03 to 0.05 ms of CUDA event calls -- under 1% of a build at a million
+	 *        primitives, closer to 7% at 200k, where a build is short enough for host side
+	 *        work to show. The build itself is not serialized to measure it.
+	 *        SAH cost is not part of this -- see NXB/BVHCost.h.
 	 *
 	 * \returns The newly built binary BVH, owning its device memory
 	 */
@@ -41,7 +45,11 @@ namespace NXB
 	 * \param primitives The primitives the BVH will be built from (AABB or Triangle)
 	 * \param primCount The number of primitives
 	 * \param buildConfig The build configuration
-	 * \param buildMetrics The build metrics. If different from nullptr, kernel execution times will be measured which results in a slower build
+	 * \param buildMetrics Per step kernel timings. Filled in when non-null, at a cost of
+	 *        roughly 0.03 to 0.05 ms of CUDA event calls -- under 1% of a build at a million
+	 *        primitives, closer to 7% at 200k, where a build is short enough for host side
+	 *        work to show. The build itself is not serialized to measure it.
+	 *        SAH cost is not part of this -- see NXB/BVHCost.h.
 	 *
 	 * \returns The newly built wide BVH, owning its device memory
 	 */

@@ -63,7 +63,7 @@ namespace NXB
 
 	template <typename McT>
 	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics)
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, StepTimers& timers)
 	{
 		cudaStream_t stream = buildConfig.stream;
 		size_t tempStorageBytes = 0;
@@ -87,7 +87,7 @@ namespace NXB
 
 		// Perform radix sorting
 		{
-			StepTimer timer(MetricPtr(buildMetrics, &BVHBuildMetrics::radixSortTime), stream);
+			StepTimer timer(timers, &BVHBuildMetrics::radixSortTime);
 
 			NXB_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(tempStorage.Get(), tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream));
 		}
@@ -109,7 +109,7 @@ namespace NXB
 	template __global__ void ComputeMortonCodesKernel<uint64_t>(BVH2BuildState buildState, uint64_t* mortonCodes);
 
 	template void RadixSort<uint32_t>(BVH2BuildState& buildState, DeviceBuffer<uint32_t>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, StepTimers& timers);
 	template void RadixSort<uint64_t>(BVH2BuildState& buildState, DeviceBuffer<uint64_t>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, StepTimers& timers);
 }

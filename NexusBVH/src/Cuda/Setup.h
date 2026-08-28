@@ -7,6 +7,7 @@
 #include "NXB/BVHBuildMetrics.h"
 #include "NXB/BuildConfig.h"
 #include "BuildState.h"
+#include "Launch.h"
 
 namespace NXB
 {
@@ -32,6 +33,6 @@ namespace NXB
 	 */
 	template <typename McT>
 	void RadixSort(BVH2BuildState& buildState, DeviceBuffer<McT>& mortonCodes,
-		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, BVHBuildMetrics* buildMetrics);
+		DeviceBuffer<uint32_t>& clusterIdx, const BuildConfig& buildConfig, StepTimers& timers);
 
 }

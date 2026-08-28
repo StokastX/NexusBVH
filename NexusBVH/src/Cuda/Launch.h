@@ -46,21 +46,116 @@ namespace NXB
 
 
 	/*
-	 * \brief Scoped CUDA event timer
+	 * \brief The event pairs of one build, read only once the build has synchronized
 	 *
-	 * Writes the elapsed time of the enclosing scope into *dst, and does nothing at all
-	 * when dst is nullptr, so a measured and an unmeasured build share a single code
-	 * path instead of duplicating every launch across both branches of an if.
+	 * cudaEventRecord is asynchronous: it enqueues a timestamp and returns. Only reading
+	 * one back waits for the GPU. Recording every step's pair in stream order and reading
+	 * them all after the single synchronize a build already does therefore measures each
+	 * step exactly -- an event is timestamped when the GPU reaches it, so a pair brackets
+	 * its own kernel no matter how far ahead the host has run -- without the per-step
+	 * synchronization that used to serialize the pipeline.
 	 *
-	 * Reading the result forces a synchronization, which is why passing build metrics
-	 * makes a build measurably slower.
+	 * Inert when metrics were not requested: no event is created and every operation is a
+	 * null check, which is what lets a measured and an unmeasured build share one code
+	 * path.
+	 */
+	class StepTimers
+	{
+	public:
+		StepTimers(BVHBuildMetrics* metrics, cudaStream_t stream)
+			: m_metrics(metrics), m_stream(stream) { }
+
+		~StepTimers() noexcept { Reset(); }
+
+		StepTimers(const StepTimers&) = delete;
+		StepTimers& operator=(const StepTimers&) = delete;
+
+		BVHBuildMetrics* Metrics() const { return m_metrics; }
+		cudaStream_t Stream() const { return m_stream; }
+
+		/*
+		 * \brief Reads every recorded pair into its field and releases the events
+		 *
+		 * The stream must have drained first. Reading an event the GPU has not reached
+		 * yet reports cudaErrorNotReady and leaves the field at zero.
+		 *
+		 * Failures are discarded rather than thrown: by the time this runs the build has
+		 * succeeded, and losing a finished BVH because a timer could not be read would be
+		 * the worse trade. CudaDiscard also consumes the error, which matters because the
+		 * next CUDA call in the process would otherwise inherit it.
+		 */
+		void Flush() noexcept
+		{
+			for (size_t i = 0; i < m_count; ++i)
+			{
+				const Record& record = m_records[i];
+				CudaDiscard(cudaEventElapsedTime(&(m_metrics->*record.field), record.start, record.stop));
+				CudaDiscard(cudaEventDestroy(record.start));
+				CudaDiscard(cudaEventDestroy(record.stop));
+			}
+			m_count = 0;
+		}
+
+	private:
+		friend class StepTimer;
+
+		struct Record
+		{
+			float BVHBuildMetrics::* field;
+			cudaEvent_t start;
+			cudaEvent_t stop;
+		};
+
+		/*
+		 * Called from ~StepTimer, so it can neither throw nor allocate. The array is
+		 * sized well above the five steps the pipeline has; a build that somehow timed
+		 * more than that would drop the extras rather than overrun it.
+		 */
+		void Add(float BVHBuildMetrics::* field, cudaEvent_t start, cudaEvent_t stop) noexcept
+		{
+			if (m_count == MaxSteps)
+			{
+				CudaDiscard(cudaEventDestroy(start));
+				CudaDiscard(cudaEventDestroy(stop));
+				return;
+			}
+
+			m_records[m_count++] = Record{ field, start, stop };
+		}
+
+		// Releases whatever Flush did not, which is everything when the build threw
+		void Reset() noexcept
+		{
+			for (size_t i = 0; i < m_count; ++i)
+			{
+				CudaDiscard(cudaEventDestroy(m_records[i].start));
+				CudaDiscard(cudaEventDestroy(m_records[i].stop));
+			}
+			m_count = 0;
+		}
+
+		static constexpr size_t MaxSteps = 8;
+
+		BVHBuildMetrics* m_metrics;
+		cudaStream_t m_stream;
+		Record m_records[MaxSteps] = {};
+		size_t m_count = 0;
+	};
+
+
+	/*
+	 * \brief Brackets the enclosing scope with one event pair
+	 *
+	 * Records the start on construction and the stop on destruction, then hands both to
+	 * the StepTimers that outlives it. Nothing is read here -- see StepTimers::Flush.
 	 */
 	class StepTimer
 	{
 	public:
-		StepTimer(float* dst, cudaStream_t stream) : m_dst(dst), m_stream(stream)
+		StepTimer(StepTimers& timers, float BVHBuildMetrics::* field)
+			: m_timers(timers), m_field(field)
 		{
-			if (!m_dst)
+			if (!timers.Metrics())
 				return;
 
 			NXB_CUDA_CHECK(cudaEventCreate(&m_start));
@@ -70,21 +165,7 @@ namespace NXB
 			try
 			{
 				NXB_CUDA_CHECK(cudaEventCreate(&m_stop));
-
-				// Drain the stream before starting the clock. Without it the per-step
-				// numbers silently borrow from each other whenever the host is free to run
-				// ahead - which is exactly what BenchmarkBuild's back-to-back loop does.
-				// Measured there, the radix sort reported 0.003 ms for 2M keys against a
-				// true ~0.4 ms, with the difference credited to the neighbouring steps;
-				// inserting any host-side work in the loop made the same build report the
-				// sort correctly. The totals were right either way, the breakdown was not.
-				//
-				// The cost is that the steps are measured serialized rather than pipelined,
-				// so the total reads higher than an untimed build actually takes. That is
-				// the usual trade for per-kernel attribution, and it is only ever paid when
-				// metrics are requested - StepTimer is inert otherwise.
-				NXB_CUDA_CHECK(cudaStreamSynchronize(m_stream));
-				NXB_CUDA_CHECK(cudaEventRecord(m_start, m_stream));
+				NXB_CUDA_CHECK(cudaEventRecord(m_start, timers.Stream()));
 			}
 			catch (...)
 			{
@@ -97,18 +178,21 @@ namespace NXB
 
 		~StepTimer() noexcept
 		{
-			if (!m_dst)
+			if (!m_start)
 				return;
 
-			// Deliberately unchecked: a destructor is noexcept, and this one also runs while
-			// an exception from the timed scope unwinds, where a second one in flight would
-			// terminate. A failure inside the scope has already been reported by the launch
-			// that raised it, and the only casualty here is one metrics number.
-			if (cudaEventRecord(m_stop, m_stream) == cudaSuccess && cudaEventSynchronize(m_stop) == cudaSuccess)
-				CudaDiscard(cudaEventElapsedTime(m_dst, m_start, m_stop));
-			else
-				cudaGetLastError();
+			// Deliberately unchecked: a destructor is noexcept, and this one also runs
+			// while an exception from the timed scope unwinds, where a second one in
+			// flight would terminate. A failure inside the scope has already been
+			// reported by the launch that raised it, and the only casualty here is one
+			// metrics number.
+			if (cudaEventRecord(m_stop, m_timers.Stream()) == cudaSuccess)
+			{
+				m_timers.Add(m_field, m_start, m_stop);
+				return;
+			}
 
+			cudaGetLastError();
 			CudaDiscard(cudaEventDestroy(m_start));
 			CudaDiscard(cudaEventDestroy(m_stop));
 		}
@@ -117,21 +201,9 @@ namespace NXB
 		StepTimer& operator=(const StepTimer&) = delete;
 
 	private:
-		float* m_dst;
-		cudaStream_t m_stream;
+		StepTimers& m_timers;
+		float BVHBuildMetrics::* m_field;
 		cudaEvent_t m_start = nullptr;
 		cudaEvent_t m_stop = nullptr;
 	};
-
-
-	/*
-	 * \brief Address of one metrics field, or nullptr when metrics are not requested
-	 *
-	 * Turns the "is this build measured?" test into a single nullptr that StepTimer
-	 * already knows how to ignore.
-	 */
-	inline float* MetricPtr(BVHBuildMetrics* buildMetrics, float BVHBuildMetrics::* field)
-	{
-		return buildMetrics ? &(buildMetrics->*field) : nullptr;
-	}
 }

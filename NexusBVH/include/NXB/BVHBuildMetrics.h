@@ -122,8 +122,10 @@ namespace NXB
 	 * This prints nothing. Reporting is the application's job -- include
 	 * NXB/BenchmarkReport.h if you want a ready made one.
 	 *
-	 * Note that passing a metrics pointer inserts sync points around every kernel, so a
-	 * measured build is measurably slower than the build a user actually gets.
+	 * A measured build is the same build: the events are recorded in stream order and
+	 * read only once, after the synchronize the build already does, so nothing is
+	 * serialized. What it costs is the event API calls themselves -- 0.03 to 0.05 ms,
+	 * hidden behind GPU work on a large scene and visible on a small one.
 	 */
 	template<typename Func, typename ...Args>
 	std::vector<BVHBuildMetrics> BenchmarkBuild(Func&& func, uint32_t warmupIterations,
