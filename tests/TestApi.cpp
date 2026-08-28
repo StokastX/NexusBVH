@@ -297,13 +297,19 @@ TEST_CASE("Requesting metrics times every step of a BVH2 build")
 	CHECK(metrics.radixSortTime > 0.0f);
 	CHECK(metrics.bvhBuildTime > 0.0f);
 
-	// A BVH2 build never runs the collapse, so totalTime is the sum of the four steps
-	// above and the conversion timer stays untouched
+	// A BVH2 build never runs the collapse, so the conversion timer stays untouched
 	CHECK(metrics.bvh8ConversionTime == 0.0f);
 
+	/*
+	 * totalTime is measured with its own event pair around the whole build rather than
+	 * summed from the steps, so it covers what the steps do not: the gaps between
+	 * kernels, the allocations, and the scene bounds upload. It is therefore an upper
+	 * bound on the sum, never equal to it.
+	 */
 	float stepSum = metrics.computeSceneBoundsTime + metrics.computeMortonCodesTime
 		+ metrics.radixSortTime + metrics.bvhBuildTime;
-	CHECK(std::fabs(stepSum - metrics.totalTime) < 1e-3f);
+	CHECK(stepSum <= metrics.totalTime);
+	CHECK(metrics.totalTime > 0.0f);
 
 }
 
@@ -321,9 +327,12 @@ TEST_CASE("Requesting metrics times the collapse of a BVH8 build")
 
 	CHECK(metrics.bvh8ConversionTime > 0.0f);
 
+	// See the BVH2 case above: totalTime is measured, not summed. Here it also spans the
+	// scratch BVH2 build, whose own StepTimers wrote and then lost the field.
 	float stepSum = metrics.computeSceneBoundsTime + metrics.computeMortonCodesTime
 		+ metrics.radixSortTime + metrics.bvhBuildTime + metrics.bvh8ConversionTime;
-	CHECK(std::fabs(stepSum - metrics.totalTime) < 1e-3f);
+	CHECK(stepSum <= metrics.totalTime);
+	CHECK(metrics.totalTime > 0.0f);
 
 }
 
@@ -359,12 +368,13 @@ TEST_CASE("BenchmarkBuild returns one sample per measured iteration")
 	CHECK(best.totalTime <= mean.totalTime);
 	CHECK(best.totalTime <= median.totalTime);
 
-	// Only the mean is linear, so only the mean preserves the step sum. Taking the median
-	// or the minimum of each field independently does not: the median of a sum is not the
-	// sum of the medians.
+	// Only the mean is linear, so only the mean keeps the step sum below the measured
+	// total field by field. Taking the median or the minimum of each independently does
+	// not: the median of a sum is not the sum of the medians, and nothing stops the
+	// median total landing below the median of the steps that made it up.
 	float stepSum = mean.computeSceneBoundsTime + mean.computeMortonCodesTime
 		+ mean.radixSortTime + mean.bvhBuildTime + mean.bvh8ConversionTime;
-	CHECK(std::fabs(stepSum - mean.totalTime) < 1e-3f);
+	CHECK(stepSum <= mean.totalTime);
 }
 
 // The old implementation divided by measuredIterations unguarded and returned NaNs here

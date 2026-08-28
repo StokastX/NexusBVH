@@ -16,6 +16,15 @@ namespace NXB
 		float radixSortTime = 0.0f;
 		float bvhBuildTime = 0.0f;
 		float bvh8ConversionTime = 0.0f;
+
+		/*
+		 * The whole build, measured with its own pair of events rather than summed from
+		 * the steps above. It therefore also covers what no step does -- the allocations,
+		 * the scene bounds upload, and the gaps between kernel launches -- so it is
+		 * always at least the sum, and the difference is that overhead. Roughly 6% of a
+		 * build at a million primitives and 20% at 200k, where a build is short enough
+		 * for a fixed per launch cost to dominate.
+		 */
 		float totalTime = 0.0f;
 	};
 
@@ -38,10 +47,11 @@ namespace NXB
 	 * Reductions over a set of samples.
 	 *
 	 * Each field is reduced independently, so the result does not correspond to any one
-	 * iteration. That is the right thing for per-step timings, but it means only Mean
-	 * preserves the identity `sum of steps == totalTime`: the median of a sum is not the
-	 * sum of the medians. All three return a zeroed struct for an empty sample set rather
-	 * than dividing by zero.
+	 * iteration. That is the right thing for per-step timings, but it means only Mean is
+	 * guaranteed to keep `sum of steps <= totalTime`, the relation a single sample always
+	 * satisfies: the median of a sum is not the sum of the medians, and nothing stops a
+	 * median total landing below the median of the steps that made it up. All three
+	 * return a zeroed struct for an empty sample set rather than dividing by zero.
 	 */
 
 	inline BVHBuildMetrics Mean(const std::vector<BVHBuildMetrics>& samples)

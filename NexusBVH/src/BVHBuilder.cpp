@@ -49,7 +49,7 @@ namespace NXB
 		// Step 2: Compute morton codes
 		// ===============================================================================
 		{
-			StepTimer timer(timers, &BVHBuildMetrics::computeMortonCodesTime);
+			const auto timer = timers.TimeStep(&BVHBuildMetrics::computeMortonCodesTime);
 
 			uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy((void*)ComputeMortonCodesKernel<McT>, blockSize);
 			Launch(ComputeMortonCodesKernel<McT>, gridSize, blockSize, stream, buildState, mortonCodes.Get());
@@ -66,7 +66,7 @@ namespace NXB
 		// Step 4: HPLOC binary BVH building
 		// ===============================================================================
 		{
-			StepTimer timer(timers, &BVHBuildMetrics::bvhBuildTime);
+			const auto timer = timers.TimeStep(&BVHBuildMetrics::bvhBuildTime);
 
 			// RadixSort may have swapped both double buffers, so mortonCodes and
 			// buildState.clusterIdx can point somewhere else than they did above
@@ -122,7 +122,7 @@ namespace NXB
 		// Step 1: Compute scene bounding box
 		// ===============================================================================
 		{
-			StepTimer timer(timers, &BVHBuildMetrics::computeSceneBoundsTime);
+			const auto timer = timers.TimeStep(&BVHBuildMetrics::computeSceneBoundsTime);
 
 			uint32_t gridSize = CudaUtils::GetGridSizeFullOccupancy((void*)ComputeSceneBoundsKernel<PrimT>, blockSize);
 			Launch(ComputeSceneBoundsKernel<PrimT>, gridSize, blockSize, stream, buildState, primitives);
@@ -138,15 +138,14 @@ namespace NXB
 			BuildBVH2Impl<uint64_t>(buildState, view, buildConfig, timers);
 		// ==============================================================================
 
+		timers.StopTotal();
+
 		// view.bounds, and the host locals the copies above read from, are only settled
 		// once the stream has drained. Only this stream is synchronized: unrelated work
 		// the caller has in flight elsewhere keeps running.
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
 		timers.Flush();
-		if (buildMetrics)
-			buildMetrics->totalTime = buildMetrics->computeSceneBoundsTime + buildMetrics->computeMortonCodesTime
-				+ buildMetrics->radixSortTime + buildMetrics->bvhBuildTime;
 
 		// After the synchronize, so that a throw there releases the buffer rather than
 		// handing it to an owner that is never returned
@@ -161,7 +160,8 @@ namespace NXB
 		if (primCount == 0)
 			return BVH8();
 
-		// Only the collapse is timed here; BuildBVH2 below flushes its own four steps
+		// Only the collapse is timed here as a step; BuildBVH2 below flushes its own
+		// four. The total this opens spans everything, that build included.
 		StepTimers timers(buildMetrics, stream);
 
 		/*
@@ -212,7 +212,7 @@ namespace NXB
 		// Step 5: BVH8 collapse
 		// ===============================================================================
 		{
-			StepTimer timer(timers, &BVHBuildMetrics::bvh8ConversionTime);
+			const auto timer = timers.TimeStep(&BVHBuildMetrics::bvh8ConversionTime);
 
 			uint32_t gridSize = DivideRoundUp(buildState.primCount, blockSize);
 			Launch(BuildBVH8Kernel, gridSize, blockSize, stream, buildState);
@@ -222,12 +222,14 @@ namespace NXB
 		uint32_t bvh8NodeCount = 0;
 		nodeCounter.DownloadAsync(&bvh8NodeCount, 1);
 
+		timers.StopTotal();
+
 		// bvh8NodeCount is only settled once the readback above has landed
 		NXB_CUDA_CHECK(cudaStreamSynchronize(stream));
 
+		// BuildBVH2 above already flushed its own timers, writing the BVH2 span into
+		// totalTime. This one spans the whole wide build and runs last, so it wins.
 		timers.Flush();
-		if (buildMetrics)
-			buildMetrics->totalTime += buildMetrics->bvh8ConversionTime;
 
 		return BVH8(std::move(bvh8Nodes), std::move(primIdx), bvh8NodeCount,
 			buildState.primCount, bvh2View.bounds);

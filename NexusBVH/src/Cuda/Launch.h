@@ -55,6 +55,10 @@ namespace NXB
 	 * its own kernel no matter how far ahead the host has run -- without the per-step
 	 * synchronization that used to serialize the pipeline.
 	 *
+	 * Construction opens the total's pair, so a build's span starts at its first stream
+	 * operation. The three calls a build makes are, in order: TimeStep around each step,
+	 * StopTotal as the last thing issued on the stream, and Flush after the synchronize.
+	 *
 	 * Inert when metrics were not requested: no event is created and every operation is a
 	 * null check, which is what lets a measured and an unmeasured build share one code
 	 * path.
@@ -63,15 +67,55 @@ namespace NXB
 	{
 	public:
 		StepTimers(BVHBuildMetrics* metrics, cudaStream_t stream)
-			: m_metrics(metrics), m_stream(stream) { }
+			: m_metrics(metrics), m_stream(stream)
+		{
+			if (!m_metrics)
+				return;
+
+			// A failure here leaves the object inert rather than failing the build: the
+			// timings are diagnostics, and losing them is not worth losing the BVH
+			if (!OpenPair(m_totalStart, m_totalStop))
+				m_metrics = nullptr;
+		}
 
 		~StepTimers() noexcept { Reset(); }
 
 		StepTimers(const StepTimers&) = delete;
 		StepTimers& operator=(const StepTimers&) = delete;
 
-		BVHBuildMetrics* Metrics() const { return m_metrics; }
-		cudaStream_t Stream() const { return m_stream; }
+		/*
+		 * \brief Times the scope the returned object lives in
+		 *
+		 * The guard is only reachable through here -- its constructor is private -- so it
+		 * cannot outlive the StepTimers it reports into, and it is neither copyable nor
+		 * movable, so it cannot leave the scope it was created in either. C++17 elides
+		 * the copy on the way out, which is what lets it be immovable and still returned.
+		 */
+		class Scope;
+		[[nodiscard]] Scope TimeStep(float BVHBuildMetrics::* field);
+
+		/*
+		 * \brief Closes the total's pair
+		 *
+		 * Must be the last thing the build issues on the stream: the total is measured
+		 * rather than summed from the steps, so the difference between it and that sum is
+		 * the launch overhead and idle time between kernels.
+		 */
+		void StopTotal() noexcept
+		{
+			if (!m_totalStart)
+				return;
+
+			if (cudaEventRecord(m_totalStop, m_stream) == cudaSuccess)
+			{
+				Add(&BVHBuildMetrics::totalTime, m_totalStart, m_totalStop);
+				m_totalStart = nullptr;
+				m_totalStop = nullptr;
+				return;
+			}
+
+			cudaGetLastError();
+		}
 
 		/*
 		 * \brief Reads every recorded pair into its field and releases the events
@@ -97,7 +141,7 @@ namespace NXB
 		}
 
 	private:
-		friend class StepTimer;
+		friend class Scope;
 
 		struct Record
 		{
@@ -106,14 +150,39 @@ namespace NXB
 			cudaEvent_t stop;
 		};
 
+		// Creates a pair and records the start. Returns false and leaves both null on
+		// failure, which every caller treats as "do not time this".
+		bool OpenPair(cudaEvent_t& start, cudaEvent_t& stop) noexcept
+		{
+			if (cudaEventCreate(&start) != cudaSuccess)
+			{
+				cudaGetLastError();
+				start = nullptr;
+				return false;
+			}
+
+			if (cudaEventCreate(&stop) != cudaSuccess || cudaEventRecord(start, m_stream) != cudaSuccess)
+			{
+				cudaGetLastError();
+				CudaDiscard(cudaEventDestroy(start));
+				if (stop)
+					CudaDiscard(cudaEventDestroy(stop));
+				start = nullptr;
+				stop = nullptr;
+				return false;
+			}
+
+			return true;
+		}
+
 		/*
-		 * Called from ~StepTimer, so it can neither throw nor allocate. The array is
-		 * sized well above the five steps the pipeline has; a build that somehow timed
-		 * more than that would drop the extras rather than overrun it.
+		 * Called from ~Scope, so it can neither throw nor allocate. The array is sized
+		 * well above the five steps and one total the pipeline has; a build that somehow
+		 * timed more than that would drop the extras rather than overrun it.
 		 */
 		void Add(float BVHBuildMetrics::* field, cudaEvent_t start, cudaEvent_t stop) noexcept
 		{
-			if (m_count == MaxSteps)
+			if (m_count == MaxRecords)
 			{
 				CudaDiscard(cudaEventDestroy(start));
 				CudaDiscard(cudaEventDestroy(stop));
@@ -132,13 +201,22 @@ namespace NXB
 				CudaDiscard(cudaEventDestroy(m_records[i].stop));
 			}
 			m_count = 0;
+
+			if (m_totalStart)
+				CudaDiscard(cudaEventDestroy(m_totalStart));
+			if (m_totalStop)
+				CudaDiscard(cudaEventDestroy(m_totalStop));
+			m_totalStart = nullptr;
+			m_totalStop = nullptr;
 		}
 
-		static constexpr size_t MaxSteps = 8;
+		static constexpr size_t MaxRecords = 8;
 
 		BVHBuildMetrics* m_metrics;
 		cudaStream_t m_stream;
-		Record m_records[MaxSteps] = {};
+		cudaEvent_t m_totalStart = nullptr;
+		cudaEvent_t m_totalStop = nullptr;
+		Record m_records[MaxRecords] = {};
 		size_t m_count = 0;
 	};
 
@@ -149,34 +227,10 @@ namespace NXB
 	 * Records the start on construction and the stop on destruction, then hands both to
 	 * the StepTimers that outlives it. Nothing is read here -- see StepTimers::Flush.
 	 */
-	class StepTimer
+	class StepTimers::Scope
 	{
 	public:
-		StepTimer(StepTimers& timers, float BVHBuildMetrics::* field)
-			: m_timers(timers), m_field(field)
-		{
-			if (!timers.Metrics())
-				return;
-
-			NXB_CUDA_CHECK(cudaEventCreate(&m_start));
-
-			// If anything below throws, the destructor never runs -- this object was never
-			// fully constructed -- so the events created so far have to be released by hand
-			try
-			{
-				NXB_CUDA_CHECK(cudaEventCreate(&m_stop));
-				NXB_CUDA_CHECK(cudaEventRecord(m_start, timers.Stream()));
-			}
-			catch (...)
-			{
-				CudaDiscard(cudaEventDestroy(m_start));
-				if (m_stop)
-					CudaDiscard(cudaEventDestroy(m_stop));
-				throw;
-			}
-		}
-
-		~StepTimer() noexcept
+		~Scope() noexcept
 		{
 			if (!m_start)
 				return;
@@ -186,7 +240,7 @@ namespace NXB
 			// flight would terminate. A failure inside the scope has already been
 			// reported by the launch that raised it, and the only casualty here is one
 			// metrics number.
-			if (cudaEventRecord(m_stop, m_timers.Stream()) == cudaSuccess)
+			if (cudaEventRecord(m_stop, m_timers.m_stream) == cudaSuccess)
 			{
 				m_timers.Add(m_field, m_start, m_stop);
 				return;
@@ -197,13 +251,27 @@ namespace NXB
 			CudaDiscard(cudaEventDestroy(m_stop));
 		}
 
-		StepTimer(const StepTimer&) = delete;
-		StepTimer& operator=(const StepTimer&) = delete;
+		Scope(const Scope&) = delete;
+		Scope& operator=(const Scope&) = delete;
 
 	private:
+		friend class StepTimers;
+
+		Scope(StepTimers& timers, float BVHBuildMetrics::* field) noexcept
+			: m_timers(timers), m_field(field)
+		{
+			if (timers.m_metrics)
+				timers.OpenPair(m_start, m_stop);
+		}
+
 		StepTimers& m_timers;
 		float BVHBuildMetrics::* m_field;
 		cudaEvent_t m_start = nullptr;
 		cudaEvent_t m_stop = nullptr;
 	};
+
+	inline StepTimers::Scope StepTimers::TimeStep(float BVHBuildMetrics::* field)
+	{
+		return Scope(*this, field);
+	}
 }

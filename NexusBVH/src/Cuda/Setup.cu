@@ -87,7 +87,7 @@ namespace NXB
 
 		// Perform radix sorting
 		{
-			StepTimer timer(timers, &BVHBuildMetrics::radixSortTime);
+			const auto timer = timers.TimeStep(&BVHBuildMetrics::radixSortTime);
 
 			NXB_CUDA_CHECK(cub::DeviceRadixSort::SortPairs(tempStorage.Get(), tempStorageBytes, keysBuffer, valuesBuffer, buildState.primCount, startBit, endBit, stream));
 		}
