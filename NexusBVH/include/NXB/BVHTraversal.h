@@ -139,6 +139,9 @@ namespace NXB
 				float dNear = leftFirst ? dLeft : dRight;
 				float dFar = leftFirst ? dRight : dLeft;
 
+				// One guard covers both children only because dNear is the minimum, so a
+				// miss on it is a miss on dFar too. Visit the children in any other order
+				// and this silently drops the subtree that was still reachable.
 				if (dNear < RayMiss)
 				{
 					if (dFar < RayMiss)

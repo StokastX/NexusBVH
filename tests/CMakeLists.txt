@@ -6,16 +6,20 @@ set(NEXUSBVH_TEST_PRIM_COUNT 200000 CACHE STRING
 	"Primitive count used by the large scene test cases")
 
 # Shared fixtures and invariant checks, kept free of any test framework so they can be
-# reused from anywhere -- including, later, the traversal tests
+# reused from anywhere, including the traversal tests
 set(supportSrc
 	support/BVHChecks.h
 	support/BVHChecks.cpp
 	support/BVH8Checks.cpp
 	support/BVH8Decode.h
 	support/BVH8Decode.cpp
+	support/Rays.h
+	support/Rays.cpp
 	support/Scenes.h
 	support/Scenes.cpp
 	support/TestConfig.h
+	support/TraversalChecks.h
+	support/TraversalChecks.cpp
 )
 
 add_library(NexusBVHTestSupport STATIC ${supportSrc})
@@ -43,6 +47,7 @@ set(testSrc
 	TestApi.cpp
 	TestBVH2.cpp
 	TestBVH8.cpp
+	TestTraversal.cpp
 )
 
 add_executable(NexusBVHTests ${testSrc})
