@@ -20,6 +20,7 @@ set(src
 	include/NXB/BuildConfig.h
 	include/NXB/BVH.h
 	include/NXB/BVHCost.h
+	include/NXB/Traversal.h
 	include/NXB/Triangle.h
 	include/NXB/AABB.h
 
