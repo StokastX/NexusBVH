@@ -25,8 +25,16 @@ namespace NXB
 {
 	/*
 	 * Distance reported for a box the ray does not reach, and the value to seed tMax with
-	 * for a ray with no far limit. Finite rather than INFINITY so that it survives the
-	 * multiplications in the slab test without producing NaN.
+	 * for a ray with no far limit.
+	 *
+	 * Large and finite rather than FLT_MAX or INFINITY. Nothing in this header multiplies
+	 * it, but caller code routinely does -- origin + direction * tMax to place a miss, or
+	 * scaling a distance into another space -- and 1e30f leaves eight orders of magnitude
+	 * of headroom before that overflows. FLT_MAX leaves none, and INFINITY turns any
+	 * 0 * tMax into a NaN. A scene would have to span 1e30 units to reach it.
+	 *
+	 * A hit always reports strictly less than this, so test a result with < rather than
+	 * !=. That reads a NaN as a miss, where != would read it as a hit.
 	 */
 	inline constexpr float RayMiss = 1e30f;
 
@@ -94,6 +102,10 @@ namespace NXB
 	 * StackSize bounds the depth this can descend to. The builder puts no bound on tree
 	 * depth, so a pathological scene can exceed it; the assert catches that in a debug
 	 * build, and a release build silently drops subtrees. Raise it rather than guess.
+	 *
+	 * The stack holds bare indices and a popped node is slab tested again, which trades a
+	 * few flops for half the stack memory. Storing the entry distance alongside the index
+	 * is the other side of that trade; it is worth measuring before assuming either way.
 	 */
 	template <uint32_t StackSize = 32, typename LeafFn>
 	__host__ __device__ inline bool TraverseBVH2(const BVH2::Node* nodes, uint32_t rootIdx,
@@ -127,9 +139,9 @@ namespace NXB
 				float dNear = leftFirst ? dLeft : dRight;
 				float dFar = leftFirst ? dRight : dLeft;
 
-				if (dNear != RayMiss)
+				if (dNear < RayMiss)
 				{
-					if (dFar != RayMiss)
+					if (dFar < RayMiss)
 					{
 						assert(stackPtr < StackSize && "BVH2 deeper than StackSize");
 						stack[stackPtr++] = leftFirst ? node.rightChild : node.leftChild;
@@ -149,7 +161,7 @@ namespace NXB
 
 				node = nodes[stack[--stackPtr]];
 
-				if (IntersectAABB(node.bounds, origin, invDir, tMin, tMax) != RayMiss)
+				if (IntersectAABB(node.bounds, origin, invDir, tMin, tMax) < RayMiss)
 					break;
 			}
 		}
